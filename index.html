@@ -978,7 +978,7 @@ function signInGcal(){
       }
     });
   }
-  _tokenClient.requestAccessToken({prompt:'select_account'});
+  _tokenClient.requestAccessToken({prompt:'consent'});
 }
 
 function handleGcalCallback(){
@@ -995,7 +995,7 @@ async function fetchGcalEvents(){
       {headers:{Authorization:'Bearer '+_gcalToken}});
     if(calRes.status===401){localStorage.removeItem('gcal_token');_gcalToken='';$('gcal-bar').classList.remove('hidden');return;}
     const calList = await calRes.json();
-    const calendars = (calList.items||[]).filter(c=>!c.deleted&&c.selected!==false);
+    const calendars = (calList.items||[]).filter(c=>c.deleted!==true);  // include all, even unselected shared calendars
     let added=0;
     for(const cal of calendars){
       try{
