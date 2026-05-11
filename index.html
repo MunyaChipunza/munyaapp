@@ -990,23 +990,34 @@ async function fetchGcalEvents(){
   try{
     const now = new Date().toISOString();
     const end = new Date(Date.now()+30*86400000).toISOString();
-    const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=50`;
-    const r = await fetch(url, {headers:{Authorization:'Bearer '+_gcalToken}});
-    if(r.status===401){localStorage.removeItem('gcal_token');_gcalToken='';$('gcal-bar').classList.remove('hidden');return;}
-    const d = await r.json();
-    let added = 0;
-    (d.items||[]).forEach(ev=>{
-      const start = ev.start?.date || ev.start?.dateTime?.slice(0,10);
-      if(!start) return;
-      const title = ev.summary || '(No title)';
-      const exists = tasks.find(t=>t.notes?.includes('gcal:'+ev.id));
-      if(!exists){
-        tasks.push({id:uid(),title,list:'Personal',dueDate:start,priority:'low',done:false,notes:'gcal:'+ev.id});
-        added++;
-      }
-    });
-    if(added>0){save();render();toast(`📅 ${added} calendar event${added>1?'s':''} added`);}
-  }catch(e){}
+    // Fetch all accessible calendars first
+    const calRes = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList',
+      {headers:{Authorization:'Bearer '+_gcalToken}});
+    if(calRes.status===401){localStorage.removeItem('gcal_token');_gcalToken='';$('gcal-bar').classList.remove('hidden');return;}
+    const calList = await calRes.json();
+    const calendars = (calList.items||[]).filter(c=>!c.deleted&&c.selected!==false);
+    let added=0;
+    for(const cal of calendars){
+      try{
+        const url=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${now}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
+        const r=await fetch(url,{headers:{Authorization:'Bearer '+_gcalToken}});
+        if(!r.ok) continue;
+        const d=await r.json();
+        (d.items||[]).forEach(ev=>{
+          const start=ev.start?.date||ev.start?.dateTime?.slice(0,10);
+          if(!start||ev.status==='cancelled') return;
+          const title=ev.summary||(No title)';
+          const exists=tasks.find(t=>t.notes?.includes('gcal:'+ev.id));
+          if(!exists){
+            tasks.push({id:uid(),title,list:'Personal',dueDate:start,priority:'low',done:false,notes:'gcal:'+ev.id});
+            added++;
+          }
+        });
+      }catch(e){}
+    }
+    if(added>0){save();render();toast(`📅 ${added} event${added>1?'s':''} imported`);}
+    else toast('📅 Calendar up to date');
+  }catch(e){console.error('GCal:',e);}
 }
 
 // ── Auto Sync (GitHub Gist) ───────────────────────────
@@ -1016,34 +1027,54 @@ const _GIST_FILE  = 'munyaapp-tasks.json';
 const _HEADERS    = {'Authorization':'token '+_GIST_TOKEN,'Content-Type':'application/json'};
 let _pushTimer    = null;
 let _lastRemote   = '';
+let _lastSyncTime = null;
+
+function setSyncUI(state){
+  const icon=$('sync-icon'), lbl=$('sync-label');
+  if(!icon) return;
+  if(state==='syncing'){icon.style.animation='spin 1s linear infinite';lbl.textContent='Syncing...';}
+  else if(state==='ok'){
+    icon.style.animation='';icon.textContent='✓';
+    const now=new Date();
+    lbl.textContent='Synced '+now.getHours()+':'+String(now.getMinutes()).padStart(2,'0');
+    _lastSyncTime=now;
+    setTimeout(()=>{if(icon)icon.textContent='↻';lbl.textContent='Sync'},5000);
+  }
+  else if(state==='error'){icon.style.animation='';icon.textContent='⚠';lbl.textContent='Sync failed';}
+}
 
 async function syncPush(){
   const body = JSON.stringify(tasks);
-  if(body === _lastRemote) return; // nothing changed
+  if(body === _lastRemote) return;
   try{
-    await fetch('https://api.github.com/gists/'+_GIST_ID,{
+    setSyncUI('syncing');
+    const r=await fetch('https://api.github.com/gists/'+_GIST_ID,{
       method:'PATCH', headers:_HEADERS,
       body: JSON.stringify({files:{[_GIST_FILE]:{content:body}}})
     });
-    _lastRemote = body;
-  }catch(e){}
+    if(r.ok){_lastRemote=body;setSyncUI('ok');}
+    else setSyncUI('error');
+  }catch(e){setSyncUI('error');}
 }
 
 async function syncPull(){
   try{
+    setSyncUI('syncing');
     const r = await fetch('https://api.github.com/gists/'+_GIST_ID,{headers:_HEADERS});
-    if(!r.ok) return;
+    if(!r.ok){setSyncUI('error');return;}
     const d = await r.json();
     const content = d.files[_GIST_FILE]?.content;
-    if(!content || content === _lastRemote) return;
+    if(!content){setSyncUI('ok');return;}
+    _lastRemote = content;
     const remote = JSON.parse(content);
     if(JSON.stringify(remote) !== JSON.stringify(tasks)){
       tasks = remote;
       localStorage.setItem('munyaapp', JSON.stringify(tasks));
-      _lastRemote = content;
       render();
+      toast('↻ Tasks updated');
     }
-  }catch(e){}
+    setSyncUI('ok');
+  }catch(e){setSyncUI('error');}
 }
 
 function schedulePush(){
@@ -1051,10 +1082,14 @@ function schedulePush(){
   _pushTimer = setTimeout(syncPush, 1500);
 }
 
-// Initial pull on load, then poll every 15s
+async function manualSync(){
+  await syncPull();
+  toast('↻ Synced!');
+}
+
 async function initSync(){
   await syncPull();
-  setInterval(syncPull, 15000);
+  setInterval(syncPull, 30000);
 }
 
 // ── Init ──────────────────────────────────────────────
