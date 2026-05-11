@@ -382,6 +382,9 @@ input[type=date].min::-webkit-calendar-picker-indicator{
     <span class="clock-time" id="clock-time"></span>
   </div>
   <div class="header-actions">
+    <button id="sync-status-btn" title="Sync now" onclick="manualSync()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12px;color:var(--t2);display:flex;align-items:center;gap:4px;">
+      <span id="sync-icon" style="font-size:14px;display:inline-block;">↻</span><span id="sync-label">Sync</span>
+    </button>
     <button class="hbtn primary" id="btn-add-global">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       Add Task
@@ -574,7 +577,8 @@ const SEED = [
 ];
 
 // ── State ─────────────────────────────────────────────
-let tasks    = JSON.parse(localStorage.getItem('munyaapp') || 'null') || SEED;
+let _stored  = (() => { try { return JSON.parse(localStorage.getItem('munyaapp')); } catch(e){ return null; } })();
+let tasks    = (Array.isArray(_stored) && _stored.length > 0) ? _stored : [...SEED];
 let editId   = null;
 let addPreset= null;
 let filter   = 'all';
@@ -902,11 +906,7 @@ function setSyncStatus(s){
 }
 function showSyncSetup(){$('sync-overlay').classList.remove('hidden');}
 async function connectSync(){
-  const t=$('sync-token').value.trim();
-  if(!t){toast('Paste your GitHub token');return;}
-  localStorage.setItem(GIST_TOKEN_KEY,t);
-  $('sync-overlay').classList.add('hidden');
-  await gistSync.init();
+  initSync();
 }
 
 
@@ -1044,6 +1044,7 @@ function setSyncUI(state){
 }
 
 async function syncPush(){
+  if(!tasks.length) return;  // never push empty — would wipe remote data
   const body = JSON.stringify(tasks);
   if(body === _lastRemote) return;
   try{
@@ -1067,6 +1068,10 @@ async function syncPull(){
     if(!content){setSyncUI('ok');return;}
     _lastRemote = content;
     const remote = JSON.parse(content);
+    // Never overwrite local tasks with an empty remote — prevents data loss
+    if(!Array.isArray(remote) || (remote.length === 0 && tasks.length > 0)){
+      setSyncUI('ok'); return;
+    }
     if(JSON.stringify(remote) !== JSON.stringify(tasks)){
       tasks = remote;
       localStorage.setItem('munyaapp', JSON.stringify(tasks));
@@ -1094,13 +1099,7 @@ async function initSync(){
 
 // ── Init ──────────────────────────────────────────────
 render();
-gistSync.init();
-$("sync-btn").addEventListener("click",()=>{
-  if(gistSync.token&&gistSync.gistId){gistSync.pull();toast("Pulling latest...");}
-  else showSyncSetup();
-});
-$("sync-connect").addEventListener("click",connectSync);
-$("sync-skip").addEventListener("click",()=>$("sync-overlay").classList.add("hidden"));
+initSync();
 </script>
 
 
