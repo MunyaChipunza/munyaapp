@@ -1066,7 +1066,7 @@ function initGcal(){
 }
 
 function signInGcal(){
-  const cid = localStorage.getItem('gcal_client_id').replace(/^_|_$/g,'');
+  const cid = GCAL_CLIENT_ID;
   const params = new URLSearchParams({
     client_id: cid, redirect_uri: location.origin + location.pathname,
     response_type: 'token', scope: GCAL_SCOPE, prompt: 'select_account'
