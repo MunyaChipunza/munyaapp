@@ -1051,7 +1051,7 @@ function closeCal(e){
 }
 
 // ── Google Calendar ───────────────────────────────────
-const GCAL_CLIENT_ID = localStorage.getItem('gcal_client_id') || '';
+const GCAL_CLIENT_ID = '257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com';
 const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
 let _gcalToken = localStorage.getItem('gcal_token') || '';
 
@@ -1059,13 +1059,7 @@ function initGcal(){
   if(_gcalToken){
     $('gcal-bar').classList.add('hidden');
     fetchGcalEvents();
-    setInterval(fetchGcalEvents, 3600000); // hourly
-  } else if(!GCAL_CLIENT_ID){
-    $('gcal-connect-btn').textContent = 'Setup needed';
-    $('gcal-connect-btn').onclick = ()=>{
-      const cid = prompt('Paste your Google OAuth Client ID:\n\n(Get it at console.cloud.google.com → APIs & Services → Credentials)');
-      if(cid){ localStorage.setItem('gcal_client_id','_'+cid+'_'); location.reload(); }
-    };
+    setInterval(fetchGcalEvents, 3600000);
   } else {
     $('gcal-connect-btn').onclick = signInGcal;
   }
