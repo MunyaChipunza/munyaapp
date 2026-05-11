@@ -346,49 +346,6 @@ textarea.min{resize:none}
 .card.dragging{opacity:.4;cursor:grabbing}
 .col-body.drag-over{background:rgba(99,102,241,.08);outline:2px dashed #6366F1;outline-offset:-4px;border-radius:8px}
 
-/* ── CALENDAR PICKER ─────────────────────── */
-.date-display{
-  width:100%;background:var(--surface);border:1px solid var(--border2);
-  border-radius:var(--rsm);color:var(--t1);font-size:14.5px;
-  padding:10px 12px;cursor:pointer;text-align:left;font-family:inherit;
-  transition:border-color .15s;display:flex;align-items:center;gap:8px;
-}
-.date-display:hover,.date-display:focus{border-color:#6366F1;outline:none}
-.date-display .dd-icon{color:var(--t2);font-size:15px}
-.date-display .dd-text{flex:1}
-#cal-popup{
-  position:fixed;z-index:700;background:var(--card);
-  border:1px solid var(--border2);border-radius:14px;
-  box-shadow:0 8px 32px rgba(99,102,241,.25);
-  padding:14px;width:280px;
-  animation:up .18s cubic-bezier(.4,0,.2,1);
-}
-#cal-popup.hidden{display:none}
-.cp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.cp-nav{background:none;border:1px solid var(--border2);color:var(--t2);
-  width:28px;height:28px;border-radius:7px;cursor:pointer;font-size:16px;
-  display:flex;align-items:center;justify-content:center;transition:all .15s}
-.cp-nav:hover{background:var(--col);color:var(--t1)}
-.cp-label{font-weight:700;font-size:14px;color:var(--t1)}
-.cp-days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px}
-.cp-dh{text-align:center;font-size:10px;font-weight:700;color:var(--t3);
-  text-transform:uppercase;padding:3px 0}
-.cp-day{
-  text-align:center;font-size:13px;padding:6px 2px;border-radius:7px;
-  cursor:pointer;color:var(--t1);border:none;background:none;font-family:inherit;
-  transition:all .12s;
-}
-.cp-day:hover{background:var(--col)}
-.cp-day.today{color:#6366F1;font-weight:700}
-.cp-day.selected{background:#6366F1;color:#fff!important;font-weight:700}
-.cp-day.other-month{color:var(--t3)}
-.cp-day.disabled{opacity:.3;cursor:not-allowed}
-.cp-clear{
-  width:100%;margin-top:8px;padding:7px;border-radius:8px;
-  border:1px solid var(--border2);background:none;color:var(--t2);
-  font-size:12.5px;cursor:pointer;font-family:inherit;transition:all .15s;
-}
-.cp-clear:hover{background:var(--col);color:var(--t1)}
 
 /* ── GCAL CONNECT ────────────────────────── */
 .gcal-bar{
@@ -404,6 +361,12 @@ textarea.min{resize:none}
   cursor:pointer;font-family:inherit;white-space:nowrap;
 }
 
+
+/* ── DATE INPUT ──────────────────────────── */
+input[type=date].min{cursor:pointer;color-scheme:light}
+input[type=date].min::-webkit-calendar-picker-indicator{
+  opacity:.5;cursor:pointer;filter:invert(0.4) sepia(1) saturate(3) hue-rotate(220deg);
+}
 </style>
 </head>
 <body>
@@ -542,11 +505,7 @@ textarea.min{resize:none}
     </div>
     <div class="mf">
       <label class="mlbl">Due Date</label>
-      <button type="button" class="date-display" id="f-due-btn">
-        <span class="dd-icon">📅</span>
-        <span class="dd-text" id="f-due-text">No date</span>
-      </button>
-      <input type="hidden" id="f-due">
+      <input type="date" class="min" id="f-due">
     </div>
     <div class="mactions">
       <button class="mbtn-g" id="m-cancel">Cancel</button>
@@ -988,68 +947,6 @@ function initDragDrop(){
   });
 }
 
-// ── Calendar Picker ───────────────────────────────────
-let _calDate = new Date();
-let _calTarget = null;
-
-function openCalPicker(anchorEl){
-  _calTarget = anchorEl;
-  const cur = $('f-due').value;
-  if(cur) _calDate = new Date(cur+'T00:00:00');
-  else _calDate = new Date();
-  renderCal();
-  const popup = $('cal-popup');
-  popup.classList.remove('hidden');
-  // Position near the button
-  const rect = anchorEl.getBoundingClientRect();
-  const top = rect.bottom + 6;
-  const left = Math.min(rect.left, window.innerWidth - 295);
-  popup.style.top = top + 'px';
-  popup.style.left = left + 'px';
-}
-
-function renderCal(){
-  const y = _calDate.getFullYear(), m = _calDate.getMonth();
-  const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  $('cp-label').textContent = MONTHS[m] + ' ' + y;
-  const today = todayStr();
-  const sel = $('f-due').value;
-  const firstDay = new Date(y, m, 1).getDay(); // 0=Sun
-  const daysInMonth = new Date(y, m+1, 0).getDate();
-  const startOffset = (firstDay + 6) % 7; // Mon=0
-
-  let html = '<div class="cp-dh">Mo</div><div class="cp-dh">Tu</div><div class="cp-dh">We</div><div class="cp-dh">Th</div><div class="cp-dh">Fr</div><div class="cp-dh">Sa</div><div class="cp-dh">Su</div>';
-  // Prev month padding
-  const prevDays = new Date(y, m, 0).getDate();
-  for(let i=0;i<startOffset;i++){
-    const d = prevDays - startOffset + 1 + i;
-    html += `<button class="cp-day other-month" data-date="" disabled>${d}</button>`;
-  }
-  for(let d=1;d<=daysInMonth;d++){
-    const ds = y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
-    let cls = 'cp-day';
-    if(ds===today) cls+=' today';
-    if(ds===sel) cls+=' selected';
-    html += `<button class="${cls}" data-date="${ds}">${d}</button>`;
-  }
-  $('cp-grid').innerHTML = html;
-  $('cp-grid').querySelectorAll('[data-date]').forEach(btn=>{
-    if(!btn.dataset.date) return;
-    btn.addEventListener('click',()=>{
-      $('f-due').value = btn.dataset.date;
-      const d = new Date(btn.dataset.date+'T00:00:00');
-      $('f-due-text').textContent = d.toLocaleDateString('en-ZA',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-      $('cal-popup').classList.add('hidden');
-    });
-  });
-}
-
-function closeCal(e){
-  const popup=$('cal-popup');
-  if(!popup.classList.contains('hidden') && !popup.contains(e.target) && e.target.id!=='f-due-btn' && !e.target.closest('#f-due-btn')){
-    popup.classList.add('hidden');
-  }
-}
 
 // ── Google Calendar ───────────────────────────────────
 const GCAL_CLIENT_ID = '257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com';
@@ -1173,13 +1070,6 @@ $("sync-skip").addEventListener("click",()=>$("sync-overlay").classList.add("hid
 
 
 
-<!-- Calendar Picker Popup -->
-<div id="cal-popup" class="hidden">
-  <div class="cp-head">
-    <button class="cp-nav" id="cp-prev">‹</button>
-    <span class="cp-label" id="cp-label"></span>
-    <button class="cp-nav" id="cp-next">›</button>
-  </div>
   <div class="cp-days" id="cp-grid"></div>
   <button class="cp-clear" id="cp-clear">Clear date</button>
 </div>
