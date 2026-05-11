@@ -1006,7 +1006,7 @@ async function fetchGcalEvents(){
         (d.items||[]).forEach(ev=>{
           const start=ev.start?.date||ev.start?.dateTime?.slice(0,10);
           if(!start||ev.status==='cancelled') return;
-          const title=ev.summary||(No title)';
+          const title=ev.summary||'(No title)';
           const exists=tasks.find(t=>t.notes?.includes('gcal:'+ev.id));
           if(!exists){
             tasks.push({id:uid(),title,list:'Personal',dueDate:start,priority:'low',done:false,notes:'gcal:'+ev.id});
