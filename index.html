@@ -453,7 +453,7 @@ textarea.min{resize:none}
 <!-- Google Calendar bar -->
 <div id="gcal-bar" class="gcal-bar">
   <span>📅 Connect Google Calendar to auto-import events as tasks</span>
-  <button class="gcal-btn" id="gcal-connect-btn">Connect</button>
+  <button class="gcal-btn" id="gcal-connect-btn" onclick="signInGcal()">Connect</button>
 </div>
 
 <!-- Board -->
@@ -1060,13 +1060,12 @@ function initGcal(){
     $('gcal-bar').classList.add('hidden');
     fetchGcalEvents();
     setInterval(fetchGcalEvents, 3600000);
-  } else {
-    $('gcal-connect-btn').onclick = signInGcal;
   }
 }
 
 function signInGcal(){
   const cid = GCAL_CLIENT_ID;
+  if(!cid){alert('Client ID missing');return;}
   const params = new URLSearchParams({
     client_id: cid, redirect_uri: location.origin + location.pathname,
     response_type: 'token', scope: GCAL_SCOPE, prompt: 'select_account'
