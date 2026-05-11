@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Munya App</title>
 <link rel="manifest" href="manifest.json">
+<script src="https://accounts.google.com/gsi/client" async></script>
 <meta name="theme-color" content="#09090F">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1063,28 +1064,28 @@ function initGcal(){
   }
 }
 
+let _tokenClient = null;
 function signInGcal(){
-  const cid = GCAL_CLIENT_ID;
-  if(!cid){alert('Client ID missing');return;}
-  const params = new URLSearchParams({
-    client_id: cid, redirect_uri: location.origin + location.pathname,
-    response_type: 'token', scope: GCAL_SCOPE, prompt: 'select_account'
-  });
-  location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
+  if(typeof google === 'undefined'){toast('Loading Google... try again in 2s');return;}
+  if(!_tokenClient){
+    _tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GCAL_CLIENT_ID,
+      scope: GCAL_SCOPE,
+      callback: (resp)=>{
+        if(resp.error){toast('Auth failed: '+resp.error);return;}
+        _gcalToken = resp.access_token;
+        localStorage.setItem('gcal_token', _gcalToken);
+        $('gcal-bar').classList.add('hidden');
+        fetchGcalEvents();
+        toast('📅 Google Calendar connected!');
+      }
+    });
+  }
+  _tokenClient.requestAccessToken({prompt:'select_account'});
 }
 
 function handleGcalCallback(){
-  const hash = location.hash;
-  if(!hash.includes('access_token')) return;
-  const params = new URLSearchParams(hash.slice(1));
-  const token = params.get('access_token');
-  if(token){
-    _gcalToken = token;
-    localStorage.setItem('gcal_token', token);
-    history.replaceState(null,'',location.pathname);
-    $('gcal-bar').classList.add('hidden');
-    fetchGcalEvents();
-  }
+  // handled by GIS popup — no redirect needed
 }
 
 async function fetchGcalEvents(){
