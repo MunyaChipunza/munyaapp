@@ -984,10 +984,12 @@ function initDragDrop(){
       const task = tasks.find(t=>t.id===id);
       if(!task) return;
       const colId = col.id;
+      const now = nowIso();
       if(colId==='body-today')   {task.done=false;delete task.doneAt;task.dueDate=todayStr();}
       else if(colId==='body-tomorrow'){task.done=false;delete task.doneAt;task.dueDate=tomorrowStr();}
       else if(colId==='body-upcoming'){task.done=false;delete task.doneAt;if(!task.dueDate||task.dueDate<=tomorrowStr())task.dueDate=addDays(2);}
-      else if(colId==='body-done'){task.done=true;task.doneAt=new Date().toISOString();}
+      else if(colId==='body-done'){task.done=true;task.doneAt=now;}
+      task.updatedAt = now;
       save();render();toast('Task moved ✓');
     });
   });
