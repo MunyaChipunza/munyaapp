@@ -1129,8 +1129,8 @@ async function writeRemoteTasks(body){
 async function fetchGcalEvents(){
   if(!_gcalToken) return;
   try{
-    const now = new Date().toISOString();
-    const end = new Date(Date.now()+30*86400000).toISOString();
+    const now = new Date(Date.now()-30*86400000).toISOString();
+    const end = new Date(Date.now()+365*86400000).toISOString();
     const calendars = [];
     let pageToken = '';
     do{
@@ -1152,52 +1152,64 @@ async function fetchGcalEvents(){
     let updated=0;
     for(const cal of calendars){
       try{
-        const url=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${now}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
-        const r=await fetch(url,{headers:authHeaders()});
-        if(r.status===401 || r.status===403){clearGoogleAuth();setSyncUI('error');return;}
-        if(!r.ok) continue;
-        const d=await r.json();
-        (d.items||[]).forEach(ev=>{
-          const start=ev.start?.date||ev.start?.dateTime?.slice(0,10);
-          if(!start||ev.status==='cancelled') return;
-          const title=ev.summary||'(No title)';
-          const sourceKey=`gcal:${cal.id}:${ev.id}`;
-          const exists=tasks.find(t=>t.sourceKey===sourceKey || t.notes===sourceKey);
-          if(exists){
-            if(isDeletedTask(exists)) return;
-            exists.title=title;
-            exists.list='Calendar';
-            exists.dueDate=start;
-            exists.priority=exists.priority||'low';
-            exists.done=false;
-            delete exists.doneAt;
-            exists.source='gcal';
-            exists.sourceKey=sourceKey;
-            exists.sourceEventId=ev.id;
-            exists.sourceCalendarId=cal.id;
-            exists.sourceCalendarName=cal.summary||cal.id;
-            exists.updatedAt=nowIso();
-            updated++;
-          }else{
-            tasks.push({
-              id:uid(),
-              title,
-              list:'Calendar',
-              dueDate:start,
-              priority:'low',
-              done:false,
-              notes:'',
-              createdAt:nowIso(),
-              updatedAt:nowIso(),
-              source:'gcal',
-              sourceKey,
-              sourceEventId:ev.id,
-              sourceCalendarId:cal.id,
-              sourceCalendarName:cal.summary||cal.id
-            });
-            imported++;
-          }
-        });
+        let eventPageToken = '';
+        do{
+          const params = new URLSearchParams({
+            timeMin: now,
+            timeMax: end,
+            singleEvents: 'true',
+            orderBy: 'startTime',
+            showDeleted: 'false',
+            maxResults: '2500',
+          });
+          if(eventPageToken) params.set('pageToken', eventPageToken);
+          const r=await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${params.toString()}`,{headers:authHeaders()});
+          if(r.status===401 || r.status===403){clearGoogleAuth();setSyncUI('error');return;}
+          if(!r.ok) break;
+          const d=await r.json();
+          (d.items||[]).forEach(ev=>{
+            const start=ev.start?.date||ev.start?.dateTime?.slice(0,10);
+            if(!start||ev.status==='cancelled') return;
+            const title=ev.summary||'(No title)';
+            const sourceKey=`gcal:${cal.id}:${ev.id}`;
+            const exists=tasks.find(t=>t.sourceKey===sourceKey || t.notes===sourceKey);
+            if(exists){
+              if(isDeletedTask(exists)) return;
+              exists.title=title;
+              exists.list='Calendar';
+              exists.dueDate=start;
+              exists.priority=exists.priority||'low';
+              exists.done=false;
+              delete exists.doneAt;
+              exists.source='gcal';
+              exists.sourceKey=sourceKey;
+              exists.sourceEventId=ev.id;
+              exists.sourceCalendarId=cal.id;
+              exists.sourceCalendarName=cal.summary||cal.id;
+              exists.updatedAt=nowIso();
+              updated++;
+            }else{
+              tasks.push({
+                id:uid(),
+                title,
+                list:'Calendar',
+                dueDate:start,
+                priority:'low',
+                done:false,
+                notes:'',
+                createdAt:nowIso(),
+                updatedAt:nowIso(),
+                source:'gcal',
+                sourceKey,
+                sourceEventId:ev.id,
+                sourceCalendarId:cal.id,
+                sourceCalendarName:cal.summary||cal.id
+              });
+              imported++;
+            }
+          });
+          eventPageToken = d.nextPageToken || '';
+        }while(eventPageToken);
       }catch(e){}
     }
     if(imported>0 || updated>0){
