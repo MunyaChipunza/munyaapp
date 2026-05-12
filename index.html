@@ -583,7 +583,7 @@ const SEED = [
 
 // ── State ─────────────────────────────────────────────
 let _stored  = (() => { try { return JSON.parse(localStorage.getItem('munyaapp')); } catch(e){ return null; } })();
-let tasks    = normalizeTaskSet((Array.isArray(_stored) && _stored.length > 0) ? _stored : SEED.map(t=>({...t})));
+let tasks    = normalizeTaskSet(Array.isArray(_stored) ? _stored : []);
 let editId   = null;
 let addPreset= null;
 let filter   = 'all';
@@ -616,6 +616,39 @@ function normalizeTaskSet(list){
 
 function isDeletedTask(task){
   return Boolean(task && task.deletedAt);
+}
+
+function taskVersion(task){
+  const candidates=[task?.updatedAt,task?.deletedAt,task?.doneAt,task?.createdAt];
+  for(const value of candidates){
+    const time=Date.parse(value||'');
+    if(Number.isFinite(time)) return time;
+  }
+  return 0;
+}
+
+function shouldAdoptTask(current,candidate){
+  const currentVersion=taskVersion(current);
+  const candidateVersion=taskVersion(candidate);
+  if(candidateVersion!==currentVersion) return candidateVersion>currentVersion;
+  if(Boolean(candidate.deletedAt)!==Boolean(current.deletedAt)) return Boolean(candidate.deletedAt);
+  if(Boolean(candidate.done)!==Boolean(current.done)) return Boolean(candidate.done);
+  return false;
+}
+
+function mergeTaskSets(localList,remoteList){
+  const merged=normalizeTaskSet(localList);
+  const positions=new Map(merged.map((task,index)=>[task.id,index]));
+  normalizeTaskSet(remoteList).forEach(candidate=>{
+    const index=positions.get(candidate.id);
+    if(index===undefined){
+      positions.set(candidate.id,merged.length);
+      merged.push(candidate);
+      return;
+    }
+    if(shouldAdoptTask(merged[index],candidate)) merged[index]=candidate;
+  });
+  return merged;
 }
 
 // ── Helpers ───────────────────────────────────────────
@@ -1131,11 +1164,12 @@ async function readRemoteTasks(){
     if(r.status===404){_syncFileId=null;return null;}
     if(!r.ok) return null;
     const text=await r.text();
-    _lastRemote=text;
     if(!text.trim()) return [];
     const parsed=JSON.parse(text);
     const remote=Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.tasks) ? parsed.tasks : []);
-    return normalizeTaskSet(remote);
+    const normalized=normalizeTaskSet(remote);
+    _lastRemote=JSON.stringify(normalized);
+    return normalized;
   }catch(e){
     console.error('Drive read:', e);
     return null;
@@ -1209,19 +1243,28 @@ async function fetchGcalEvents(){
             const exists=tasks.find(t=>t.sourceKey===sourceKey || t.notes===sourceKey);
             if(exists){
               if(isDeletedTask(exists)) return;
-              exists.title=title;
-              exists.list='Calendar';
-              exists.dueDate=start;
-              exists.priority=exists.priority||'low';
-              exists.done=false;
-              delete exists.doneAt;
-              exists.source='gcal';
-              exists.sourceKey=sourceKey;
-              exists.sourceEventId=ev.id;
-              exists.sourceCalendarId=cal.id;
-              exists.sourceCalendarName=cal.summary||cal.id;
-              exists.updatedAt=nowIso();
-              updated++;
+              let changed=false;
+              const calendarName=cal.summary||cal.id;
+              const wasCalendarAligned=exists.sourceStartDate
+                ? !exists.dueDate || exists.dueDate===exists.sourceStartDate
+                : exists.dueDate===start;
+              if(exists.title!==title){exists.title=title;changed=true;}
+              if(exists.list!=='Calendar'){exists.list='Calendar';changed=true;}
+              if(!exists.priority){exists.priority='low';changed=true;}
+              if(exists.source!=='gcal'){exists.source='gcal';changed=true;}
+              if(exists.sourceKey!==sourceKey){exists.sourceKey=sourceKey;changed=true;}
+              if(exists.sourceEventId!==ev.id){exists.sourceEventId=ev.id;changed=true;}
+              if(exists.sourceCalendarId!==cal.id){exists.sourceCalendarId=cal.id;changed=true;}
+              if(exists.sourceCalendarName!==calendarName){exists.sourceCalendarName=calendarName;changed=true;}
+              if(exists.sourceStartDate!==start){
+                if(wasCalendarAligned && exists.dueDate!==start){exists.dueDate=start;changed=true;}
+                exists.sourceStartDate=start;
+                changed=true;
+              }
+              if(changed){
+                exists.updatedAt=nowIso();
+                updated++;
+              }
             }else{
               tasks.push({
                 id:uid(),
@@ -1237,7 +1280,8 @@ async function fetchGcalEvents(){
                 sourceKey,
                 sourceEventId:ev.id,
                 sourceCalendarId:cal.id,
-                sourceCalendarName:cal.summary||cal.id
+                sourceCalendarName:cal.summary||cal.id,
+                sourceStartDate:start
               });
               imported++;
             }
@@ -1283,16 +1327,29 @@ function setSyncUI(state){
 
 async function syncPush(){
   if(!_gcalToken) return;
-  const body=JSON.stringify(tasks);
-  if(!tasks.length || body===_lastRemote) return;
   try{
     setSyncUI('syncing');
-    const r=await writeRemoteTasks(body);
+    const remote=await readRemoteTasks();
+    if(remote===null){setSyncUI('error');return;}
+    const merged=mergeTaskSets(tasks,remote);
+    const mergedBody=JSON.stringify(merged);
+    const remoteBody=JSON.stringify(remote);
+    if(mergedBody!==JSON.stringify(tasks)){
+      tasks=merged;
+      localStorage.setItem('munyaapp',mergedBody);
+      render();
+    }
+    if(!merged.length || mergedBody===remoteBody){
+      _lastRemote=remoteBody;
+      setSyncUI('ok');
+      return;
+    }
+    const r=await writeRemoteTasks(mergedBody);
     if(r.status===401 || r.status===403){clearGoogleAuth();setSyncUI('error');return;}
     if(!r.ok){setSyncUI('error');return;}
     const d=await r.json().catch(()=>null);
     if(d?.id) _syncFileId=d.id;
-    _lastRemote=body;
+    _lastRemote=mergedBody;
     setSyncUI('ok');
   }catch(e){
     console.error('Sync push:', e);
@@ -1306,18 +1363,16 @@ async function syncPull(){
     setSyncUI('syncing');
     const remote=await readRemoteTasks();
     if(remote===null){setSyncUI('error');return;}
+    const merged=mergeTaskSets(tasks,remote);
     const remoteBody=JSON.stringify(remote);
-    if(remote.length===0 && tasks.length>0){
-      _lastRemote=remoteBody;
-      setSyncUI('ok');
-      return;
-    }
-    if(remoteBody!==JSON.stringify(tasks)){
-      tasks=remote;
-      localStorage.setItem('munyaapp', JSON.stringify(tasks));
+    const mergedBody=JSON.stringify(merged);
+    if(mergedBody!==JSON.stringify(tasks)){
+      tasks=merged;
+      localStorage.setItem('munyaapp', mergedBody);
       render();
       toast('↻ Tasks updated');
     }
+    if(mergedBody!==remoteBody) schedulePush();
     _lastRemote=remoteBody;
     setSyncUI('ok');
   }catch(e){
