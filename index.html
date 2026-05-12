@@ -999,12 +999,27 @@ const GCAL_CLIENT_ID = '257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googl
 const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.appdata';
 const SYNC_FILE_NAME = 'munyaapp-tasks.json';
 let _gcalToken = localStorage.getItem('gcal_token') || '';
+let _autoAuthAttempted = false;
+let _autoAuthRetryTimer = null;
 
 function initGcal(){
   if(!_gcalToken){
+    if(!_autoAuthAttempted){
+      _autoAuthAttempted = true;
+      if(typeof google === 'undefined'){
+        clearTimeout(_autoAuthRetryTimer);
+        _autoAuthRetryTimer = setTimeout(()=>{
+          _autoAuthAttempted = false;
+          initGcal();
+        }, 1200);
+        return;
+      }
+      if(attemptSilentGoogleAuth()) return;
+    }
     $('gcal-bar').classList.remove('hidden');
     return;
   }
+  _autoAuthAttempted = true;
   $('gcal-bar').classList.add('hidden');
   if(!_syncTimer) _syncTimer=setInterval(syncPull,30000);
   if(!_calendarTimer) _calendarTimer=setInterval(fetchGcalEvents,3600000);
@@ -1015,22 +1030,39 @@ let _tokenClient = null;
 let _syncTimer = null;
 let _calendarTimer = null;
 let _syncFileId = null;
-function signInGcal(){
-  if(typeof google === 'undefined'){toast('Loading Google... try again in 2s');return;}
-  if(!_tokenClient){
-    _tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: GCAL_CLIENT_ID,
-      scope: GCAL_SCOPE,
-      callback: (resp)=>{
-        if(resp.error){toast('Auth failed: '+resp.error);return;}
-        _gcalToken = resp.access_token;
-        localStorage.setItem('gcal_token', _gcalToken);
-        initGcal();
-        toast('📅 Google connected!');
+
+function ensureTokenClient(){
+  if(_tokenClient) return _tokenClient;
+  if(typeof google === 'undefined') return null;
+  _tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GCAL_CLIENT_ID,
+    scope: GCAL_SCOPE,
+    callback: (resp)=>{
+      if(resp.error){
+        if(!_gcalToken) $('gcal-bar').classList.remove('hidden');
+        return;
       }
-    });
-  }
-  _tokenClient.requestAccessToken({prompt:'consent'});
+      _gcalToken = resp.access_token;
+      localStorage.setItem('gcal_token', _gcalToken);
+      _autoAuthAttempted = true;
+      initGcal();
+      toast('📅 Google connected!');
+    }
+  });
+  return _tokenClient;
+}
+
+function attemptSilentGoogleAuth(){
+  const client = ensureTokenClient();
+  if(!client) return false;
+  client.requestAccessToken({prompt:''});
+  return true;
+}
+
+function signInGcal(){
+  const client = ensureTokenClient();
+  if(!client){toast('Loading Google... try again in 2s');return;}
+  client.requestAccessToken({prompt:'consent'});
 }
 
 function handleGcalCallback(){
