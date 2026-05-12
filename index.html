@@ -403,6 +403,9 @@ input[type=date].min::-webkit-calendar-picker-indicator{
   <button class="filter-pill" data-list="Personal">
     <span class="filter-dot" style="background:#8B5CF6"></span>Personal
   </button>
+  <button class="filter-pill" data-list="Calendar">
+    <span class="filter-dot" style="background:#0EA5E9"></span>Calendar
+  </button>
   <button class="filter-pill" data-list="Family">
     <span class="filter-dot" style="background:#EC4899"></span>Family
   </button>
@@ -419,8 +422,8 @@ input[type=date].min::-webkit-calendar-picker-indicator{
 
 <!-- Google Calendar bar -->
 <div id="gcal-bar" class="gcal-bar">
-  <span>📅 Connect Google Calendar to auto-import events as tasks</span>
-  <button class="gcal-btn" id="gcal-connect-btn" onclick="signInGcal()">Connect</button>
+  <span>📅 Connect Google to sync tasks across devices and auto-import shared calendars</span>
+  <button class="gcal-btn" id="gcal-connect-btn" onclick="signInGcal()">Connect Google</button>
 </div>
 
 <!-- Board -->
@@ -490,6 +493,7 @@ input[type=date].min::-webkit-calendar-picker-indicator{
         <select class="msel" id="f-list">
           <option value="HydroFire">HydroFire</option>
           <option value="Personal">Personal</option>
+          <option value="Calendar">Calendar</option>
           <option value="Family">Family</option>
           <option value="Zimbabwe">Zimbabwe</option>
           <option value="Career">Career</option>
@@ -538,6 +542,7 @@ input[type=date].min::-webkit-calendar-picker-indicator{
 const LISTS = {
   HydroFire: '#3B82F6',
   Personal:  '#8B5CF6',
+  Calendar:  '#0EA5E9',
   Family:    '#EC4899',
   Zimbabwe:  '#F97316',
   Career:    '#10B981',
@@ -578,12 +583,40 @@ const SEED = [
 
 // ── State ─────────────────────────────────────────────
 let _stored  = (() => { try { return JSON.parse(localStorage.getItem('munyaapp')); } catch(e){ return null; } })();
-let tasks    = (Array.isArray(_stored) && _stored.length > 0) ? _stored : [...SEED];
+let tasks    = normalizeTaskSet((Array.isArray(_stored) && _stored.length > 0) ? _stored : SEED.map(t=>({...t})));
 let editId   = null;
 let addPreset= null;
 let filter   = 'all';
 let deferPWA = null;
 let _lastDate= todayStr();
+
+function nowIso(){return new Date().toISOString()}
+
+function normalizeTask(task){
+  if(!task || typeof task !== 'object') return null;
+  const t={...task};
+  if(!t.id) t.id = uid();
+  if(typeof t.notes !== 'string') t.notes = t.notes ? String(t.notes) : '';
+  if(t.notes.startsWith('gcal:') && !t.sourceKey) t.sourceKey = t.notes;
+  if(t.sourceKey && !t.source) t.source = 'gcal';
+  if(t.source === 'gcal'){
+    t.list = 'Calendar';
+    if(!t.sourceCalendarName && t.calendarName) t.sourceCalendarName = t.calendarName;
+    if(!t.sourceCalendarId && t.calendarId) t.sourceCalendarId = t.calendarId;
+    if(!t.sourceEventId && t.eventId) t.sourceEventId = t.eventId;
+  }
+  if(!t.createdAt) t.createdAt = t.updatedAt || t.doneAt || nowIso();
+  if(!t.updatedAt) t.updatedAt = t.deletedAt || t.createdAt;
+  return t;
+}
+
+function normalizeTaskSet(list){
+  return Array.isArray(list) ? list.map(normalizeTask).filter(Boolean) : [];
+}
+
+function isDeletedTask(task){
+  return Boolean(task && task.deletedAt);
+}
 
 // ── Helpers ───────────────────────────────────────────
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
@@ -620,8 +653,9 @@ function fmtGroupDate(s){
 }
 
 function filteredTasks(){
-  if(filter==='all')return tasks;
-  return tasks.filter(t=>t.list===filter);
+  const active=tasks.filter(t=>!isDeletedTask(t));
+  if(filter==='all')return active;
+  return active.filter(t=>t.list===filter);
 }
 
 // ── Clock ─────────────────────────────────────────────
@@ -726,6 +760,7 @@ function cardHtml(t,badge,showDate,isDone){
     <div class="card-title">${esc(t.title)}</div>
     <div class="card-meta">
       <span class="badge list-badge" style="background:${lc}18;color:${lc}">${esc(t.list)}</span>
+      ${t.source==='gcal'&&t.sourceCalendarName?`<span class="badge" style="background:rgba(14,165,233,.12);color:#0284C7">${esc(t.sourceCalendarName)}</span>`:''}
       ${t.priority?`<span class="badge pri-badge pri-${t.priority}">${t.priority}</span>`:''}
       ${daysLate?`<span class="badge late-badge">${badge}</span>`:''}
       ${todayBadge?`<span class="badge" style="background:rgba(239,68,68,.12);color:#F87171">Today</span>`:''}
@@ -763,24 +798,30 @@ function bindCards(container){
 // ── Task actions ──────────────────────────────────────
 function toggleDone(id){
   const t=tasks.find(x=>x.id===id);
-  if(!t)return;
+  if(!t || isDeletedTask(t))return;
   t.done=!t.done;
-  if(t.done)t.doneAt=new Date().toISOString();
+  const now=nowIso();
+  if(t.done)t.doneAt=now;
   else delete t.doneAt;
+  t.updatedAt=now;
   save();
   setTimeout(render,240);
 }
 
 function delTask(e,id){
   e.stopPropagation();
-  tasks=tasks.filter(t=>t.id!==id);
+  const t=tasks.find(x=>x.id===id);
+  if(!t)return;
+  const now=nowIso();
+  t.deletedAt=now;
+  t.updatedAt=now;
   save();render();toast('Task deleted');
 }
 
 function restoreTask(e,id){
   e.stopPropagation();
   const t=tasks.find(x=>x.id===id);
-  if(t){t.done=false;delete t.doneAt;save();render();toast('Task restored');}
+  if(t && !isDeletedTask(t)){t.done=false;delete t.doneAt;t.updatedAt=nowIso();save();render();toast('Task restored');}
 }
 
 // ── Modal ─────────────────────────────────────────────
@@ -800,6 +841,7 @@ function openAdd(preset){
 
 function openEdit(id){
   const t=tasks.find(x=>x.id===id);if(!t)return;
+  if(isDeletedTask(t))return;
   editId=id;
   $('m-title').textContent='Edit Task';
   $('f-title').value=t.title;
@@ -816,6 +858,7 @@ function closeModal(){$('overlay').classList.add('hidden');editId=null}
 function saveTask(){
   const title=$('f-title').value.trim();
   if(!title){$('f-title').focus();return}
+  const now=nowIso();
   const data={
     title,notes:$('f-notes').value.trim(),
     list:$('f-list').value,
@@ -823,10 +866,13 @@ function saveTask(){
     dueDate:$('f-due').value||null,
   };
   if(editId){
-    Object.assign(tasks.find(t=>t.id===editId),data);
+    const target=tasks.find(t=>t.id===editId);
+    if(!target || isDeletedTask(target)) return;
+    Object.assign(target,data,{updatedAt:now});
+    if(target.source==='gcal') target.list='Calendar';
     toast('Task updated ✓');
   }else{
-    tasks.push({id:uid(),...data,done:false});
+    tasks.push({id:uid(),...data,done:false,createdAt:now,updatedAt:now});
     toast('Task added ✓');
   }
   save();closeModal();render();
@@ -906,7 +952,7 @@ function setSyncStatus(s){
 }
 function showSyncSetup(){$('sync-overlay').classList.remove('hidden');}
 async function connectSync(){
-  initSync();
+  signInGcal();
 }
 
 
@@ -950,18 +996,25 @@ function initDragDrop(){
 
 // ── Google Calendar ───────────────────────────────────
 const GCAL_CLIENT_ID = '257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com';
-const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.appdata';
+const SYNC_FILE_NAME = 'munyaapp-tasks.json';
 let _gcalToken = localStorage.getItem('gcal_token') || '';
 
 function initGcal(){
-  if(_gcalToken){
-    $('gcal-bar').classList.add('hidden');
-    fetchGcalEvents();
-    setInterval(fetchGcalEvents, 3600000);
+  if(!_gcalToken){
+    $('gcal-bar').classList.remove('hidden');
+    return;
   }
+  $('gcal-bar').classList.add('hidden');
+  if(!_syncTimer) _syncTimer=setInterval(syncPull,30000);
+  if(!_calendarTimer) _calendarTimer=setInterval(fetchGcalEvents,3600000);
+  syncPull().then(()=>fetchGcalEvents()).catch(()=>{});
 }
 
 let _tokenClient = null;
+let _syncTimer = null;
+let _calendarTimer = null;
+let _syncFileId = null;
 function signInGcal(){
   if(typeof google === 'undefined'){toast('Loading Google... try again in 2s');return;}
   if(!_tokenClient){
@@ -972,9 +1025,8 @@ function signInGcal(){
         if(resp.error){toast('Auth failed: '+resp.error);return;}
         _gcalToken = resp.access_token;
         localStorage.setItem('gcal_token', _gcalToken);
-        $('gcal-bar').classList.add('hidden');
-        fetchGcalEvents();
-        toast('📅 Google Calendar connected!');
+        initGcal();
+        toast('📅 Google connected!');
       }
     });
   }
@@ -985,101 +1037,235 @@ function handleGcalCallback(){
   // handled by GIS popup — no redirect needed
 }
 
+function clearGoogleAuth(){
+  localStorage.removeItem('gcal_token');
+  _gcalToken='';
+  _syncFileId=null;
+  _lastRemote='';
+  if(_syncTimer){clearInterval(_syncTimer);_syncTimer=null;}
+  if(_calendarTimer){clearInterval(_calendarTimer);_calendarTimer=null;}
+  $('gcal-bar').classList.remove('hidden');
+}
+
+function authHeaders(extra={}){
+  return _gcalToken ? {...extra, Authorization:'Bearer '+_gcalToken} : extra;
+}
+
+function buildMultipartUpload(metadata, content){
+  const boundary='munyaapp_'+Math.random().toString(36).slice(2);
+  return {
+    boundary,
+    body:[
+      `--${boundary}`,
+      'Content-Type: application/json; charset=UTF-8',
+      '',
+      JSON.stringify(metadata),
+      `--${boundary}`,
+      'Content-Type: application/json; charset=UTF-8',
+      '',
+      content,
+      `--${boundary}--`,
+      ''
+    ].join('\r\n')
+  };
+}
+
+async function getRemoteSyncFileId(){
+  if(_syncFileId) return _syncFileId;
+  if(!_gcalToken) return null;
+  try{
+    const q=encodeURIComponent(`name='${SYNC_FILE_NAME}' and trashed=false`);
+    const url=`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id,name,modifiedTime)&pageSize=10`;
+    const r=await fetch(url,{headers:authHeaders()});
+    if(r.status===401 || r.status===403){clearGoogleAuth();setSyncUI('error');return null;}
+    if(!r.ok) return null;
+    const d=await r.json();
+    _syncFileId = d.files?.[0]?.id || null;
+    return _syncFileId;
+  }catch(e){
+    console.error('Drive list:', e);
+    return null;
+  }
+}
+
+async function readRemoteTasks(){
+  const fileId=await getRemoteSyncFileId();
+  if(!fileId) return [];
+  try{
+    const r=await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,{headers:authHeaders()});
+    if(r.status===401 || r.status===403){clearGoogleAuth();setSyncUI('error');return null;}
+    if(r.status===404){_syncFileId=null;return null;}
+    if(!r.ok) return null;
+    const text=await r.text();
+    _lastRemote=text;
+    if(!text.trim()) return [];
+    const parsed=JSON.parse(text);
+    const remote=Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.tasks) ? parsed.tasks : []);
+    return normalizeTaskSet(remote);
+  }catch(e){
+    console.error('Drive read:', e);
+    return null;
+  }
+}
+
+async function writeRemoteTasks(body){
+  const fileId=await getRemoteSyncFileId();
+  const headers=authHeaders({'Content-Type':'application/json; charset=UTF-8'});
+  if(fileId){
+    return fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,{
+      method:'PATCH',
+      headers,
+      body
+    });
+  }
+  const upload=buildMultipartUpload({name:SYNC_FILE_NAME,parents:['appDataFolder']}, body);
+  return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{
+    method:'POST',
+    headers:authHeaders({'Content-Type':`multipart/related; boundary=${upload.boundary}`}),
+    body:upload.body
+  });
+}
+
 async function fetchGcalEvents(){
   if(!_gcalToken) return;
   try{
     const now = new Date().toISOString();
     const end = new Date(Date.now()+30*86400000).toISOString();
-    // Fetch all accessible calendars first
     const calRes = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList',
-      {headers:{Authorization:'Bearer '+_gcalToken}});
-    if(calRes.status===401){localStorage.removeItem('gcal_token');_gcalToken='';$('gcal-bar').classList.remove('hidden');return;}
+      {headers:authHeaders()});
+    if(calRes.status===401 || calRes.status===403){clearGoogleAuth();setSyncUI('error');return;}
     const calList = await calRes.json();
-    const calendars = (calList.items||[]).filter(c=>c.deleted!==true);  // include all, even unselected shared calendars
-    let added=0;
+    const calendars = (calList.items||[]).filter(c=>c.deleted!==true);
+    let imported=0;
+    let updated=0;
     for(const cal of calendars){
       try{
         const url=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${now}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
-        const r=await fetch(url,{headers:{Authorization:'Bearer '+_gcalToken}});
+        const r=await fetch(url,{headers:authHeaders()});
+        if(r.status===401 || r.status===403){clearGoogleAuth();setSyncUI('error');return;}
         if(!r.ok) continue;
         const d=await r.json();
         (d.items||[]).forEach(ev=>{
           const start=ev.start?.date||ev.start?.dateTime?.slice(0,10);
           if(!start||ev.status==='cancelled') return;
           const title=ev.summary||'(No title)';
-          const exists=tasks.find(t=>t.notes?.includes('gcal:'+ev.id));
-          if(!exists){
-            tasks.push({id:uid(),title,list:'Personal',dueDate:start,priority:'low',done:false,notes:'gcal:'+ev.id});
-            added++;
+          const sourceKey=`gcal:${cal.id}:${ev.id}`;
+          const exists=tasks.find(t=>t.sourceKey===sourceKey || t.notes===sourceKey);
+          if(exists){
+            if(isDeletedTask(exists)) return;
+            exists.title=title;
+            exists.list='Calendar';
+            exists.dueDate=start;
+            exists.priority=exists.priority||'low';
+            exists.done=false;
+            delete exists.doneAt;
+            exists.source='gcal';
+            exists.sourceKey=sourceKey;
+            exists.sourceEventId=ev.id;
+            exists.sourceCalendarId=cal.id;
+            exists.sourceCalendarName=cal.summary||cal.id;
+            exists.updatedAt=nowIso();
+            updated++;
+          }else{
+            tasks.push({
+              id:uid(),
+              title,
+              list:'Calendar',
+              dueDate:start,
+              priority:'low',
+              done:false,
+              notes:'',
+              createdAt:nowIso(),
+              updatedAt:nowIso(),
+              source:'gcal',
+              sourceKey,
+              sourceEventId:ev.id,
+              sourceCalendarId:cal.id,
+              sourceCalendarName:cal.summary||cal.id
+            });
+            imported++;
           }
         });
       }catch(e){}
     }
-    if(added>0){save();render();toast(`📅 ${added} event${added>1?'s':''} imported`);}
-    else toast('📅 Calendar up to date');
-  }catch(e){console.error('GCal:',e);}
+    if(imported>0 || updated>0){
+      save();
+      render();
+      toast(`📅 ${imported} imported${updated?`, ${updated} updated`:''}`);
+    }else{
+      toast('📅 Calendar up to date');
+    }
+  }catch(e){console.error('GCal:',e);setSyncUI('error');}
 }
 
-// ── Auto Sync (GitHub Gist) ───────────────────────────
-const _GIST_ID    = 'b1c2911c653b777d774ddc582c8a807c';
-const _GIST_TOKEN = atob('Z2hwX2lvSzBQOXI0d0hoQlRtMFBsQWF6SURROUlxbVd5MzJUeFJBYQ==');
-const _GIST_FILE  = 'munyaapp-tasks.json';
-const _HEADERS    = {'Authorization':'token '+_GIST_TOKEN,'Content-Type':'application/json'};
+// ── Auto Sync (Google Drive appData) ─────────────────────────
 let _pushTimer    = null;
 let _lastRemote   = '';
 let _lastSyncTime = null;
 
 function setSyncUI(state){
   const icon=$('sync-icon'), lbl=$('sync-label');
-  if(!icon) return;
-  if(state==='syncing'){icon.style.animation='spin 1s linear infinite';lbl.textContent='Syncing...';}
-  else if(state==='ok'){
-    icon.style.animation='';icon.textContent='✓';
+  if(!icon || !lbl) return;
+  if(state==='syncing'){
+    icon.style.animation='spin 1s linear infinite';
+    lbl.textContent='Syncing...';
+  }else if(state==='ok'){
+    icon.style.animation='';
+    icon.textContent='✓';
     const now=new Date();
     lbl.textContent='Synced '+now.getHours()+':'+String(now.getMinutes()).padStart(2,'0');
     _lastSyncTime=now;
-    setTimeout(()=>{if(icon)icon.textContent='↻';lbl.textContent='Sync'},5000);
+    setTimeout(()=>{if(icon&&lbl){icon.textContent='↻';lbl.textContent='Sync';}},5000);
+  }else if(state==='error'){
+    icon.style.animation='';
+    icon.textContent='⚠';
+    lbl.textContent='Sync failed';
   }
-  else if(state==='error'){icon.style.animation='';icon.textContent='⚠';lbl.textContent='Sync failed';}
 }
 
 async function syncPush(){
-  if(!tasks.length) return;  // never push empty — would wipe remote data
-  const body = JSON.stringify(tasks);
-  if(body === _lastRemote) return;
+  if(!_gcalToken) return;
+  const body=JSON.stringify(tasks);
+  if(!tasks.length || body===_lastRemote) return;
   try{
     setSyncUI('syncing');
-    const r=await fetch('https://api.github.com/gists/'+_GIST_ID,{
-      method:'PATCH', headers:_HEADERS,
-      body: JSON.stringify({files:{[_GIST_FILE]:{content:body}}})
-    });
-    if(r.ok){_lastRemote=body;setSyncUI('ok');}
-    else setSyncUI('error');
-  }catch(e){setSyncUI('error');}
+    const r=await writeRemoteTasks(body);
+    if(r.status===401 || r.status===403){clearGoogleAuth();setSyncUI('error');return;}
+    if(!r.ok){setSyncUI('error');return;}
+    const d=await r.json().catch(()=>null);
+    if(d?.id) _syncFileId=d.id;
+    _lastRemote=body;
+    setSyncUI('ok');
+  }catch(e){
+    console.error('Sync push:', e);
+    setSyncUI('error');
+  }
 }
 
 async function syncPull(){
+  if(!_gcalToken) return;
   try{
     setSyncUI('syncing');
-    const r = await fetch('https://api.github.com/gists/'+_GIST_ID,{headers:_HEADERS});
-    if(!r.ok){setSyncUI('error');return;}
-    const d = await r.json();
-    const content = d.files[_GIST_FILE]?.content;
-    if(!content){setSyncUI('ok');return;}
-    _lastRemote = content;
-    const remote = JSON.parse(content);
-    // Never overwrite local tasks with an empty remote — prevents data loss
-    if(!Array.isArray(remote) || (remote.length === 0 && tasks.length > 0)){
-      setSyncUI('ok'); return;
+    const remote=await readRemoteTasks();
+    if(remote===null){setSyncUI('error');return;}
+    const remoteBody=JSON.stringify(remote);
+    if(remote.length===0 && tasks.length>0){
+      _lastRemote=remoteBody;
+      setSyncUI('ok');
+      return;
     }
-    if(JSON.stringify(remote) !== JSON.stringify(tasks)){
-      tasks = remote;
+    if(remoteBody!==JSON.stringify(tasks)){
+      tasks=remote;
       localStorage.setItem('munyaapp', JSON.stringify(tasks));
       render();
       toast('↻ Tasks updated');
     }
+    _lastRemote=remoteBody;
     setSyncUI('ok');
-  }catch(e){setSyncUI('error');}
+  }catch(e){
+    console.error('Sync pull:', e);
+    setSyncUI('error');
+  }
 }
 
 function schedulePush(){
@@ -1088,18 +1274,17 @@ function schedulePush(){
 }
 
 async function manualSync(){
+  if(!_gcalToken){signInGcal();return;}
+  clearTimeout(_pushTimer);
+  _pushTimer = null;
+  await syncPush();
   await syncPull();
-  toast('↻ Synced!');
+  await fetchGcalEvents();
 }
 
-async function initSync(){
-  await syncPull();
-  setInterval(syncPull, 30000);
-}
-
-// ── Init ──────────────────────────────────────────────
+// ── Init ─────────────────────────────────────────────────
 render();
-initSync();
+initGcal();
 </script>
 
 
