@@ -1131,11 +1131,23 @@ async function fetchGcalEvents(){
   try{
     const now = new Date().toISOString();
     const end = new Date(Date.now()+30*86400000).toISOString();
-    const calRes = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList',
-      {headers:authHeaders()});
-    if(calRes.status===401 || calRes.status===403){clearGoogleAuth();setSyncUI('error');return;}
-    const calList = await calRes.json();
-    const calendars = (calList.items||[]).filter(c=>c.deleted!==true);
+    const calendars = [];
+    let pageToken = '';
+    do{
+      const params = new URLSearchParams({
+        showDeleted: 'false',
+        showHidden: 'true',
+        maxResults: '250',
+      });
+      if(pageToken) params.set('pageToken', pageToken);
+      const calRes = await fetch(`https://www.googleapis.com/calendar/v3/users/me/calendarList?${params.toString()}`,
+        {headers:authHeaders()});
+      if(calRes.status===401 || calRes.status===403){clearGoogleAuth();setSyncUI('error');return;}
+      if(!calRes.ok) break;
+      const calList = await calRes.json();
+      calendars.push(...(calList.items||[]).filter(c=>c.deleted!==true));
+      pageToken = calList.nextPageToken || '';
+    }while(pageToken);
     let imported=0;
     let updated=0;
     for(const cal of calendars){
