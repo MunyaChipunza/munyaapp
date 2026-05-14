@@ -1033,29 +1033,37 @@ function initDragDrop(){
 const GCAL_CLIENT_ID = '257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com';
 const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.appdata';
 const SYNC_FILE_NAME = 'munyaapp-tasks.json';
-let _gcalToken = localStorage.getItem('gcal_token') || '';
+const GCAL_TOKEN_KEY = 'gcal_token';
+const GCAL_TOKEN_EXPIRES_KEY = 'gcal_token_expires_at';
+const GCAL_CONNECTED_KEY = 'gcal_connected';
+let _gcalToken = localStorage.getItem(GCAL_TOKEN_KEY) || '';
+let _gcalTokenExpiresAt = Number(localStorage.getItem(GCAL_TOKEN_EXPIRES_KEY) || 0);
+if(_gcalToken && localStorage.getItem(GCAL_CONNECTED_KEY)!=='1') localStorage.setItem(GCAL_CONNECTED_KEY,'1');
 let _autoAuthAttempted = false;
 let _autoAuthRetryTimer = null;
 
 function initGcal(){
-  if(!_gcalToken){
+  if(typeof google === 'undefined'){
+    clearTimeout(_autoAuthRetryTimer);
+    _autoAuthRetryTimer = setTimeout(initGcal, 1200);
+    return;
+  }
+  if(!hasFreshGoogleToken()){
     if(!_autoAuthAttempted){
       _autoAuthAttempted = true;
-      if(typeof google === 'undefined'){
-        clearTimeout(_autoAuthRetryTimer);
-        _autoAuthRetryTimer = setTimeout(()=>{
-          _autoAuthAttempted = false;
-          initGcal();
-        }, 1200);
+      if(localStorage.getItem(GCAL_CONNECTED_KEY)==='1'){
+        attemptSilentGoogleAuth().then(ok=>{
+          if(!ok && !hasFreshGoogleToken()) $('gcal-bar').classList.remove('hidden');
+        });
         return;
       }
-      if(attemptSilentGoogleAuth()) return;
     }
     $('gcal-bar').classList.remove('hidden');
     return;
   }
   _autoAuthAttempted = true;
   $('gcal-bar').classList.add('hidden');
+  scheduleGoogleTokenRefresh();
   if(!_syncTimer) _syncTimer=setInterval(syncPull,30000);
   if(!_calendarTimer) _calendarTimer=setInterval(fetchGcalEvents,3600000);
   syncPull().then(()=>fetchGcalEvents()).catch(()=>{});
@@ -1065,6 +1073,32 @@ let _tokenClient = null;
 let _syncTimer = null;
 let _calendarTimer = null;
 let _syncFileId = null;
+let _tokenRefreshTimer = null;
+let _pendingTokenRequest = null;
+let _pendingTokenResolve = null;
+let _pendingTokenPrompt = '';
+let _tokenRequestTimeout = null;
+
+function hasFreshGoogleToken(bufferMs=60000){
+  return Boolean(_gcalToken && _gcalTokenExpiresAt && Date.now()+bufferMs < _gcalTokenExpiresAt);
+}
+
+function storeGoogleToken(resp){
+  _gcalToken = resp.access_token;
+  const ttlSeconds = Math.max(60, Number(resp.expires_in || 3600) - 90);
+  _gcalTokenExpiresAt = Date.now() + ttlSeconds * 1000;
+  localStorage.setItem(GCAL_TOKEN_KEY, _gcalToken);
+  localStorage.setItem(GCAL_TOKEN_EXPIRES_KEY, String(_gcalTokenExpiresAt));
+  localStorage.setItem(GCAL_CONNECTED_KEY, '1');
+  scheduleGoogleTokenRefresh();
+}
+
+function scheduleGoogleTokenRefresh(){
+  clearTimeout(_tokenRefreshTimer);
+  if(!_gcalTokenExpiresAt) return;
+  const delay = Math.max(60000, _gcalTokenExpiresAt - Date.now() - 5*60000);
+  _tokenRefreshTimer = setTimeout(()=>attemptSilentGoogleAuth(), delay);
+}
 
 function ensureTokenClient(){
   if(_tokenClient) return _tokenClient;
@@ -1073,31 +1107,56 @@ function ensureTokenClient(){
     client_id: GCAL_CLIENT_ID,
     scope: GCAL_SCOPE,
     callback: (resp)=>{
+      clearTimeout(_tokenRequestTimeout);
+      const resolve = _pendingTokenResolve;
+      const promptMode = _pendingTokenPrompt;
+      _pendingTokenResolve = null;
+      _pendingTokenRequest = null;
+      _pendingTokenPrompt = '';
       if(resp.error){
         if(!_gcalToken) $('gcal-bar').classList.remove('hidden');
+        if(resolve) resolve(false);
         return;
       }
-      _gcalToken = resp.access_token;
-      localStorage.setItem('gcal_token', _gcalToken);
+      storeGoogleToken(resp);
       _autoAuthAttempted = true;
       initGcal();
+      if(resolve) resolve(true);
+      if(!promptMode) return;
       toast('📅 Google connected!');
     }
   });
   return _tokenClient;
 }
 
-function attemptSilentGoogleAuth(){
+function requestGoogleToken(promptMode=''){
   const client = ensureTokenClient();
-  if(!client) return false;
-  client.requestAccessToken({prompt:''});
-  return true;
+  if(!client) return Promise.resolve(false);
+  if(_pendingTokenRequest) return _pendingTokenRequest;
+  _pendingTokenPrompt = promptMode;
+  _pendingTokenRequest = new Promise(resolve=>{
+    _pendingTokenResolve = resolve;
+    clearTimeout(_tokenRequestTimeout);
+    _tokenRequestTimeout = setTimeout(()=>{
+      _pendingTokenResolve = null;
+      _pendingTokenRequest = null;
+      _pendingTokenPrompt = '';
+      resolve(false);
+    }, 15000);
+    client.requestAccessToken({prompt:promptMode});
+  });
+  return _pendingTokenRequest;
 }
 
-function signInGcal(){
-  const client = ensureTokenClient();
-  if(!client){toast('Loading Google... try again in 2s');return;}
-  client.requestAccessToken({prompt:'consent'});
+function attemptSilentGoogleAuth(){
+  return requestGoogleToken('');
+}
+
+async function signInGcal(){
+  if(typeof google === 'undefined'){toast('Loading Google... try again in 2s');return false;}
+  const ok = await requestGoogleToken('select_account');
+  if(!ok) toast('Google reconnect failed. Try again once.');
+  return ok;
 }
 
 function handleGcalCallback(){
@@ -1105,13 +1164,27 @@ function handleGcalCallback(){
 }
 
 function clearGoogleAuth(){
-  localStorage.removeItem('gcal_token');
+  localStorage.removeItem(GCAL_TOKEN_KEY);
+  localStorage.removeItem(GCAL_TOKEN_EXPIRES_KEY);
   _gcalToken='';
+  _gcalTokenExpiresAt=0;
   _syncFileId=null;
   _lastRemote='';
   if(_syncTimer){clearInterval(_syncTimer);_syncTimer=null;}
   if(_calendarTimer){clearInterval(_calendarTimer);_calendarTimer=null;}
+  clearTimeout(_tokenRefreshTimer);
   $('gcal-bar').classList.remove('hidden');
+}
+
+async function ensureGoogleAccess(interactive=false){
+  if(hasFreshGoogleToken()) return true;
+  const ok = interactive ? await signInGcal() : await attemptSilentGoogleAuth();
+  if(!ok && !hasFreshGoogleToken()){
+    clearGoogleAuth();
+    setSyncUI('error');
+    return false;
+  }
+  return true;
 }
 
 function authHeaders(extra={}){
@@ -1195,7 +1268,7 @@ async function writeRemoteTasks(body){
 }
 
 async function fetchGcalEvents(){
-  if(!_gcalToken) return;
+  if(!await ensureGoogleAccess()) return;
   try{
     const now = new Date(Date.now()-30*86400000).toISOString();
     const end = new Date(Date.now()+365*86400000).toISOString();
@@ -1326,7 +1399,7 @@ function setSyncUI(state){
 }
 
 async function syncPush(){
-  if(!_gcalToken) return;
+  if(!await ensureGoogleAccess()) return;
   try{
     setSyncUI('syncing');
     const remote=await readRemoteTasks();
@@ -1358,7 +1431,7 @@ async function syncPush(){
 }
 
 async function syncPull(){
-  if(!_gcalToken) return;
+  if(!await ensureGoogleAccess()) return;
   try{
     setSyncUI('syncing');
     const remote=await readRemoteTasks();
@@ -1387,7 +1460,7 @@ function schedulePush(){
 }
 
 async function manualSync(){
-  if(!_gcalToken){signInGcal();return;}
+  if(!await ensureGoogleAccess(true)) return;
   clearTimeout(_pushTimer);
   _pushTimer = null;
   await syncPush();
