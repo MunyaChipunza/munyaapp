@@ -177,6 +177,21 @@ html,body{height:100%;background:var(--bg);color:var(--t1);
   margin-bottom:6px;line-height:1.4;
 }
 .done-card .card-title{text-decoration:line-through;color:var(--t3)}
+.card-notes{
+  color:var(--t2);font-size:12px;line-height:1.45;margin:-1px 0 6px;
+  overflow-wrap:anywhere
+}
+.card-links{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:0 0 6px}
+.task-link{
+  color:#2563EB;text-decoration:none;font-weight:650;
+  border-bottom:1px solid rgba(37,99,235,.25)
+}
+.task-link:hover{color:#1D4ED8;border-bottom-color:currentColor}
+.link-badge{
+  background:rgba(37,99,235,.1);color:#2563EB;
+  border:1px solid rgba(37,99,235,.16);cursor:pointer
+}
+.link-badge:hover{background:rgba(37,99,235,.16)}
 .card-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 
 .badge{
@@ -592,11 +607,49 @@ let _lastDate= todayStr();
 
 function nowIso(){return new Date().toISOString()}
 
+function trimLinkText(value){
+  return String(value||'').trim().replace(/[.,!?;:)\]}]+$/,'');
+}
+
+function normalizeLinkUrl(value){
+  let url=trimLinkText(value);
+  if(!url) return '';
+  if(/^www\./i.test(url)) url='https://'+url;
+  try{
+    const parsed=new URL(url);
+    if(parsed.protocol!=='http:' && parsed.protocol!=='https:') return '';
+    return parsed.href;
+  }catch(e){
+    return '';
+  }
+}
+
+function normalizeLinkList(links){
+  if(!Array.isArray(links)) return [];
+  const seen=new Set();
+  return links.map(link=>{
+    const href=normalizeLinkUrl(link?.url || link?.href || link);
+    if(!href || seen.has(href)) return null;
+    seen.add(href);
+    const label=String(link?.label || link?.title || href.replace(/^https?:\/\//,'')).trim();
+    return {url:href,label:label||'Link'};
+  }).filter(Boolean);
+}
+
+function sameLinks(a,b){
+  return JSON.stringify(normalizeLinkList(a))===JSON.stringify(normalizeLinkList(b));
+}
+
 function normalizeTask(task){
   if(!task || typeof task !== 'object') return null;
   const t={...task};
   if(!t.id) t.id = uid();
   if(typeof t.notes !== 'string') t.notes = t.notes ? String(t.notes) : '';
+  if(typeof t.sourceNotes !== 'string') delete t.sourceNotes;
+  if(Array.isArray(t.links)){
+    t.links = normalizeLinkList(t.links);
+    if(!t.links.length) delete t.links;
+  }
   if(t.notes.startsWith('gcal:') && !t.sourceKey) t.sourceKey = t.notes;
   if(t.sourceKey && !t.source) t.source = 'gcal';
   if(t.source === 'gcal'){
@@ -656,6 +709,44 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 function save(){localStorage.setItem('munyaapp',JSON.stringify(tasks));schedulePush();}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function $(id){return document.getElementById(id)}
+
+function htmlText(s){
+  return esc(s).replace(/\n/g,'<br>');
+}
+
+function linkAnchor(url,label,className='task-link'){
+  const href=normalizeLinkUrl(url);
+  if(!href) return '';
+  return `<a class="${className}" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label||href)}</a>`;
+}
+
+function linkifyText(text){
+  const input=String(text||'');
+  if(!input) return '';
+  const re=/((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+  let output='';
+  let last=0;
+  let match;
+  while((match=re.exec(input))){
+    const rawFull=match[0];
+    const raw=trimLinkText(rawFull);
+    const href=normalizeLinkUrl(raw);
+    if(!href) continue;
+    output+=htmlText(input.slice(last,match.index));
+    output+=linkAnchor(href,raw);
+    const consumed=raw.length;
+    if(consumed<rawFull.length) output+=htmlText(rawFull.slice(consumed));
+    last=match.index+rawFull.length;
+  }
+  output+=htmlText(input.slice(last));
+  return output;
+}
+
+function taskLinksHtml(links){
+  const normalized=normalizeLinkList(links);
+  if(!normalized.length) return '';
+  return `<div class="card-links">${normalized.map(link=>linkAnchor(link.url,link.label,'task-link badge link-badge')).join('')}</div>`;
+}
 
 function todayStr(){return new Date().toISOString().slice(0,10)}
 function tomorrowStr(){const d=new Date();d.setDate(d.getDate()+1);return d.toISOString().slice(0,10)}
@@ -787,10 +878,14 @@ function cardHtml(t,badge,showDate,isDone){
   const lc=LISTS[t.list]||'#888';
   const daysLate=badge&&badge.includes('d late');
   const todayBadge=badge==='Today';
+  const notesHtml=t.notes?`<div class="card-notes">${linkifyText(t.notes)}</div>`:'';
+  const linksHtml=taskLinksHtml(t.links);
   return`<div class="card${isDone?' done-card':''}" draggable="true" data-id="${t.id}">
   <div class="chk${t.done?' on':''}" data-p="${t.priority||''}" data-id="${t.id}"></div>
   <div class="card-body">
-    <div class="card-title">${esc(t.title)}</div>
+    <div class="card-title">${linkifyText(t.title)}</div>
+    ${notesHtml}
+    ${linksHtml}
     <div class="card-meta">
       <span class="badge list-badge" style="background:${lc}18;color:${lc}">${esc(t.list)}</span>
       ${t.source==='gcal'&&t.sourceCalendarName?`<span class="badge" style="background:rgba(14,165,233,.12);color:#0284C7">${esc(t.sourceCalendarName)}</span>`:''}
@@ -818,6 +913,7 @@ function emptyHtml(col){
 }
 
 function bindCards(container){
+  container.querySelectorAll('a.task-link').forEach(el=>el.addEventListener('click',e=>e.stopPropagation()));
   container.querySelectorAll('.chk').forEach(el=>el.addEventListener('click',e=>{
     e.stopPropagation();
     const id=el.dataset.id;
@@ -1267,6 +1363,73 @@ async function writeRemoteTasks(body){
   });
 }
 
+function addUniqueLink(list,url,label){
+  const href=normalizeLinkUrl(url);
+  if(!href || list.some(link=>link.url===href)) return;
+  list.push({url:href,label});
+}
+
+function extractUrlsFromText(text){
+  const urls=[];
+  const re=/((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+  let match;
+  while((match=re.exec(String(text||'')))){
+    const href=normalizeLinkUrl(match[0]);
+    if(href && !urls.includes(href)) urls.push(href);
+  }
+  return urls;
+}
+
+function decodeHtmlEntities(text){
+  const div=document.createElement('div');
+  div.innerHTML=String(text||'');
+  return div.textContent||'';
+}
+
+function stripHtmlToText(html){
+  const div=document.createElement('div');
+  div.innerHTML=String(html||'');
+  return (div.textContent||div.innerText||'').trim();
+}
+
+function extractLinksFromHtmlish(html){
+  const input=String(html||'');
+  const urls=[];
+  input.replace(/href=["']([^"']+)["']/gi,(_,href)=>{
+    const decoded=decodeHtmlEntities(href);
+    const normalized=normalizeLinkUrl(decoded);
+    if(normalized && !urls.includes(normalized)) urls.push(normalized);
+    return _;
+  });
+  extractUrlsFromText(stripHtmlToText(input)||input).forEach(url=>{
+    if(!urls.includes(url)) urls.push(url);
+  });
+  return urls;
+}
+
+function calendarNotesFromEvent(ev){
+  const text=stripHtmlToText(ev.description||'');
+  return text.trim();
+}
+
+function calendarLinksFromEvent(ev){
+  const links=[];
+  addUniqueLink(links,ev.hangoutLink,'Meet');
+  (ev.conferenceData?.entryPoints||[]).forEach(entry=>{
+    if(!entry?.uri) return;
+    const label=entry.entryPointType==='video'?'Meet':entry.entryPointType==='phone'?'Phone':'Join';
+    addUniqueLink(links,entry.uri,label);
+  });
+  if(ev.location){
+    const locationUrls=extractUrlsFromText(ev.location);
+    if(locationUrls.length) locationUrls.forEach(url=>addUniqueLink(links,url,'Maps'));
+    else addUniqueLink(links,`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ev.location)}`,'Maps');
+  }
+  addUniqueLink(links,ev.htmlLink,'Calendar');
+  extractLinksFromHtmlish(ev.description).forEach(url=>addUniqueLink(links,url,'Link'));
+  return links;
+}
+
 async function fetchGcalEvents(){
   if(!await ensureGoogleAccess()) return;
   try{
@@ -1313,6 +1476,8 @@ async function fetchGcalEvents(){
             if(!start||ev.status==='cancelled') return;
             const title=ev.summary||'(No title)';
             const sourceKey=`gcal:${cal.id}:${ev.id}`;
+            const eventLinks=calendarLinksFromEvent(ev);
+            const eventNotes=calendarNotesFromEvent(ev);
             const exists=tasks.find(t=>t.sourceKey===sourceKey || t.notes===sourceKey);
             if(exists){
               if(isDeletedTask(exists)) return;
@@ -1329,6 +1494,15 @@ async function fetchGcalEvents(){
               if(exists.sourceEventId!==ev.id){exists.sourceEventId=ev.id;changed=true;}
               if(exists.sourceCalendarId!==cal.id){exists.sourceCalendarId=cal.id;changed=true;}
               if(exists.sourceCalendarName!==calendarName){exists.sourceCalendarName=calendarName;changed=true;}
+              if(!sameLinks(exists.links,eventLinks)){
+                if(eventLinks.length) exists.links=eventLinks;
+                else delete exists.links;
+                changed=true;
+              }
+              if(eventNotes && (!exists.notes || exists.notes===exists.sourceNotes)){
+                if(exists.notes!==eventNotes){exists.notes=eventNotes;changed=true;}
+                exists.sourceNotes=eventNotes;
+              }
               if(exists.sourceStartDate!==start){
                 if(wasCalendarAligned && exists.dueDate!==start){exists.dueDate=start;changed=true;}
                 exists.sourceStartDate=start;
@@ -1346,7 +1520,7 @@ async function fetchGcalEvents(){
                 dueDate:start,
                 priority:'low',
                 done:false,
-                notes:'',
+                notes:eventNotes,
                 createdAt:nowIso(),
                 updatedAt:nowIso(),
                 source:'gcal',
@@ -1354,7 +1528,9 @@ async function fetchGcalEvents(){
                 sourceEventId:ev.id,
                 sourceCalendarId:cal.id,
                 sourceCalendarName:cal.summary||cal.id,
-                sourceStartDate:start
+                sourceStartDate:start,
+                sourceNotes:eventNotes,
+                links:eventLinks
               });
               imported++;
             }
