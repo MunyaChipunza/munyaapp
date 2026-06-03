@@ -204,6 +204,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);
 .pri-badge.pri-low   {background:rgba(16,185,129,.12);color:var(--done)}
 .late-badge{background:rgba(239,68,68,.2);color:#FF7070;font-weight:700}
 .due-badge{background:rgba(99,102,241,.12);color:#A5B4FC}
+.time-badge{background:rgba(15,23,42,.08);color:#334155;font-variant-numeric:tabular-nums}
 
 .card-actions{
   display:flex;flex-direction:column;gap:3px;
@@ -604,6 +605,7 @@ let addPreset= null;
 let filter   = 'all';
 let deferPWA = null;
 let _lastDate= todayStr();
+let _lastMinute='';
 
 function nowIso(){return new Date().toISOString()}
 
@@ -771,9 +773,72 @@ function fmtDate(s){
   return d.toLocaleDateString('en-ZA',{weekday:'short',day:'numeric',month:'short'});
 }
 
+function localDateStr(date){
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+}
+
+function localTimeStr(date){
+  return `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
+}
+
 function fmtGroupDate(s){
   const d=new Date(s+'T00:00:00');
   return d.toLocaleDateString('en-ZA',{weekday:'long',day:'numeric',month:'long'});
+}
+
+function fmtTaskTime(t){
+  if(!t?.sourceStartTime) return '';
+  return t.sourceEndTime ? `${t.sourceStartTime}-${t.sourceEndTime}` : t.sourceStartTime;
+}
+
+function taskStartMs(t){
+  const source=Date.parse(t?.sourceStartAt||'');
+  if(Number.isFinite(source)) return source;
+  if(t?.dueDate && t?.sourceStartTime){
+    const fallback=Date.parse(`${t.dueDate}T${t.sourceStartTime}:00`);
+    if(Number.isFinite(fallback)) return fallback;
+  }
+  return null;
+}
+
+function taskEndMs(t){
+  const source=Date.parse(t?.sourceEndAt||'');
+  if(Number.isFinite(source)) return source;
+  if(t?.dueDate && t?.sourceEndTime){
+    const fallback=Date.parse(`${t.dueDate}T${t.sourceEndTime}:00`);
+    if(Number.isFinite(fallback)) return fallback;
+  }
+  return taskStartMs(t);
+}
+
+function compareTimedByStart(a,b){
+  const aStart=taskStartMs(a);
+  const bStart=taskStartMs(b);
+  const aTimed=aStart!==null;
+  const bTimed=bStart!==null;
+  if(aTimed!==bTimed) return aTimed?-1:1;
+  if(aTimed && aStart!==bStart) return aStart-bStart;
+  return (a.title||'').localeCompare(b.title||'');
+}
+
+function compareTodayTasks(a,b){
+  if(a.dueDate!==b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+  const now=Date.now();
+  const aEnd=taskEndMs(a);
+  const bEnd=taskEndMs(b);
+  const aTimed=aEnd!==null;
+  const bTimed=bEnd!==null;
+  const aEnded=aTimed && aEnd<now;
+  const bEnded=bTimed && bEnd<now;
+  if(aEnded!==bEnded) return aEnded?1:-1;
+  if(aTimed!==bTimed) return aTimed?-1:1;
+  return compareTimedByStart(a,b);
+}
+
+function compareUpcomingTasks(a,b){
+  const dateCompare=(a.dueDate||'9999').localeCompare(b.dueDate||'9999');
+  if(dateCompare) return dateCompare;
+  return compareTimedByStart(a,b);
 }
 
 function filteredTasks(){
@@ -797,9 +862,12 @@ function tick(){
   const ss=String(n.getSeconds()).padStart(2,'0');
   $('clock-date').textContent=`${day}, ${dt} ${mo} ${yr}`;
   $('clock-time').textContent=`${hh}:${mm}:${ss}`;
-  // Midnight auto-migration
+  const minuteKey=`${hh}:${mm}`;
+  let shouldRender=false;
+  if(minuteKey!==_lastMinute){_lastMinute=minuteKey;shouldRender=true}
   const td=todayStr();
-  if(td!==_lastDate){_lastDate=td;render()}
+  if(td!==_lastDate){_lastDate=td;shouldRender=true}
+  if(shouldRender)render();
 }
 setInterval(tick,1000);
 tick();
@@ -810,8 +878,8 @@ function render(){
   const td=todayStr(),tm=tomorrowStr();
   const groups={
     today:    ft.filter(t=>!t.done&&t.dueDate&&t.dueDate<=td),
-    tomorrow: ft.filter(t=>!t.done&&t.dueDate===tm),
-    upcoming: ft.filter(t=>!t.done&&(!t.dueDate||t.dueDate>tm)).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999')),
+    tomorrow: ft.filter(t=>!t.done&&t.dueDate===tm).sort(compareTimedByStart),
+    upcoming: ft.filter(t=>!t.done&&(!t.dueDate||t.dueDate>tm)).sort(compareUpcomingTasks),
     done:     ft.filter(t=>t.done).sort((a,b)=>new Date(b.doneAt||0)-new Date(a.doneAt||0)),
   };
 
@@ -835,8 +903,7 @@ function render(){
 function renderToday(list, today){
   const body=$('body-today');
   if(!list.length){body.innerHTML=emptyHtml('today');return}
-  // Sort: overdue first (by date asc), then today
-  const sorted=[...list].sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const sorted=[...list].sort(compareTodayTasks);
   body.innerHTML=sorted.map(t=>{
     const late=t.dueDate<today?daysBetween(t.dueDate,today):0;
     return cardHtml(t,late?`${late}d late`:'Today');
@@ -847,7 +914,8 @@ function renderToday(list, today){
 function renderSimple(col, list){
   const body=$('body-'+col);
   if(!list.length){body.innerHTML=emptyHtml(col);return}
-  body.innerHTML=list.map(t=>cardHtml(t,null)).join('');
+  const sorted=col==='tomorrow'?[...list].sort(compareTimedByStart):list;
+  body.innerHTML=sorted.map(t=>cardHtml(t,null)).join('');
   bindCards(body);
 }
 
@@ -861,7 +929,7 @@ function renderUpcoming(list){
   Object.entries(byDate).sort(([a],[b])=>a.localeCompare(b)).forEach(([ds,ts])=>{
     const lbl=ds==='none'?'No date set':fmtGroupDate(ds);
     html+=`<div class="date-grp-lbl">${lbl}</div>`;
-    html+=ts.map(t=>cardHtml(t,null,true)).join('');
+    html+=ts.sort(compareTimedByStart).map(t=>cardHtml(t,null,true)).join('');
   });
   body.innerHTML=html;
   bindCards(body);
@@ -880,6 +948,7 @@ function cardHtml(t,badge,showDate,isDone){
   const todayBadge=badge==='Today';
   const notesHtml=t.notes?`<div class="card-notes">${linkifyText(t.notes)}</div>`:'';
   const linksHtml=taskLinksHtml(t.links);
+  const timeBadge=fmtTaskTime(t);
   return`<div class="card${isDone?' done-card':''}" draggable="true" data-id="${t.id}">
   <div class="chk${t.done?' on':''}" data-p="${t.priority||''}" data-id="${t.id}"></div>
   <div class="card-body">
@@ -889,6 +958,7 @@ function cardHtml(t,badge,showDate,isDone){
     <div class="card-meta">
       <span class="badge list-badge" style="background:${lc}18;color:${lc}">${esc(t.list)}</span>
       ${t.source==='gcal'&&t.sourceCalendarName?`<span class="badge" style="background:rgba(14,165,233,.12);color:#0284C7">${esc(t.sourceCalendarName)}</span>`:''}
+      ${timeBadge?`<span class="badge time-badge">${esc(timeBadge)}</span>`:''}
       ${t.priority?`<span class="badge pri-badge pri-${t.priority}">${t.priority}</span>`:''}
       ${daysLate?`<span class="badge late-badge">${badge}</span>`:''}
       ${todayBadge?`<span class="badge" style="background:rgba(239,68,68,.12);color:#F87171">Today</span>`:''}
@@ -1430,6 +1500,28 @@ function calendarLinksFromEvent(ev){
   return links;
 }
 
+function calendarTimeFromEvent(ev){
+  const startDateTime=ev.start?.dateTime;
+  if(!startDateTime){
+    return {date:ev.start?.date||'',startTime:'',endTime:'',startAt:'',endAt:'',allDay:true};
+  }
+  const startDate=new Date(startDateTime);
+  const endDateTime=ev.end?.dateTime||startDateTime;
+  const endDate=new Date(endDateTime);
+  if(Number.isNaN(startDate.getTime())){
+    return {date:startDateTime.slice(0,10),startTime:'',endTime:'',startAt:'',endAt:'',allDay:false};
+  }
+  const validEnd=!Number.isNaN(endDate.getTime());
+  return {
+    date:localDateStr(startDate),
+    startTime:localTimeStr(startDate),
+    endTime:validEnd?localTimeStr(endDate):'',
+    startAt:startDate.toISOString(),
+    endAt:validEnd?endDate.toISOString():startDate.toISOString(),
+    allDay:false
+  };
+}
+
 async function fetchGcalEvents(){
   if(!await ensureGoogleAccess()) return;
   try{
@@ -1472,7 +1564,8 @@ async function fetchGcalEvents(){
           if(!r.ok) break;
           const d=await r.json();
           (d.items||[]).forEach(ev=>{
-            const start=ev.start?.date||ev.start?.dateTime?.slice(0,10);
+            const timeInfo=calendarTimeFromEvent(ev);
+            const start=timeInfo.date;
             if(!start||ev.status==='cancelled') return;
             const title=ev.summary||'(No title)';
             const sourceKey=`gcal:${cal.id}:${ev.id}`;
@@ -1494,6 +1587,30 @@ async function fetchGcalEvents(){
               if(exists.sourceEventId!==ev.id){exists.sourceEventId=ev.id;changed=true;}
               if(exists.sourceCalendarId!==cal.id){exists.sourceCalendarId=cal.id;changed=true;}
               if(exists.sourceCalendarName!==calendarName){exists.sourceCalendarName=calendarName;changed=true;}
+              if(exists.sourceStartTime!==timeInfo.startTime){
+                if(timeInfo.startTime) exists.sourceStartTime=timeInfo.startTime;
+                else delete exists.sourceStartTime;
+                changed=true;
+              }
+              if(exists.sourceEndTime!==timeInfo.endTime){
+                if(timeInfo.endTime) exists.sourceEndTime=timeInfo.endTime;
+                else delete exists.sourceEndTime;
+                changed=true;
+              }
+              if(exists.sourceStartAt!==timeInfo.startAt){
+                if(timeInfo.startAt) exists.sourceStartAt=timeInfo.startAt;
+                else delete exists.sourceStartAt;
+                changed=true;
+              }
+              if(exists.sourceEndAt!==timeInfo.endAt){
+                if(timeInfo.endAt) exists.sourceEndAt=timeInfo.endAt;
+                else delete exists.sourceEndAt;
+                changed=true;
+              }
+              if(Boolean(exists.sourceAllDay)!==Boolean(timeInfo.allDay)){
+                exists.sourceAllDay=Boolean(timeInfo.allDay);
+                changed=true;
+              }
               if(!sameLinks(exists.links,eventLinks)){
                 if(eventLinks.length) exists.links=eventLinks;
                 else delete exists.links;
@@ -1529,6 +1646,11 @@ async function fetchGcalEvents(){
                 sourceCalendarId:cal.id,
                 sourceCalendarName:cal.summary||cal.id,
                 sourceStartDate:start,
+                sourceStartTime:timeInfo.startTime,
+                sourceEndTime:timeInfo.endTime,
+                sourceStartAt:timeInfo.startAt,
+                sourceEndAt:timeInfo.endAt,
+                sourceAllDay:Boolean(timeInfo.allDay),
                 sourceNotes:eventNotes,
                 links:eventLinks
               });
