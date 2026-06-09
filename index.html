@@ -669,6 +669,34 @@ function normalizeTaskSet(list){
   return Array.isArray(list) ? list.map(normalizeTask).filter(Boolean) : [];
 }
 
+function addMenReadingPlan(){
+  const createdAt='2026-06-08T06:00:00.000Z';
+  const dates=[
+    '2026-06-08','2026-06-09','2026-06-10','2026-06-11',
+    '2026-06-12','2026-06-13','2026-06-14','2026-06-15',
+    '2026-06-16','2026-06-17','2026-06-18','2026-06-19',
+    '2026-06-20','2026-06-21'
+  ];
+  let added=false;
+  dates.forEach((dueDate,index)=>{
+    const id=`munya-men-reading-${dueDate}`;
+    if(tasks.some(task=>task.id===id)) return;
+    tasks.push({
+      id,
+      title:`MEN - read at least 12 pages, sense-check and edit (Day ${index+1}/14)`,
+      list:'Career',
+      dueDate,
+      priority:'medium',
+      done:false,
+      notes:'Daily minimum: 12 pages. Read carefully, sense-check the content, and make edits.',
+      createdAt,
+      updatedAt:createdAt
+    });
+    added=true;
+  });
+  if(added) localStorage.setItem('munyaapp',JSON.stringify(tasks));
+}
+
 function isDeletedTask(task){
   return Boolean(task && task.deletedAt);
 }
@@ -1767,6 +1795,7 @@ async function manualSync(){
 }
 
 // ── Init ─────────────────────────────────────────────────
+addMenReadingPlan();
 initDragDrop();
 render();
 initGcal();
