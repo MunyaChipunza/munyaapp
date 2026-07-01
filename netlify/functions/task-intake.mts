@@ -249,12 +249,13 @@ function normalizePostedTask(raw: unknown, now: string, index: number) {
 }
 
 function parseIntakeLine(raw: string, sourceKey: string, now: string) {
+  const hasTaskPrefix = /^\s*(?:[-*]\s+)?(?:\[[ xX]\]\s+)?(?:todo|task)\s*:\s*/i.test(raw);
   let line = raw
     .replace(/^\s*[-*]\s+/, "")
     .replace(/^\s*\[[ xX]\]\s+/, "")
     .replace(/^\s*(todo|task)\s*:\s*/i, "")
     .trim();
-  if (!line || /^task title\b/i.test(line) || /^allowed\b/i.test(line)) return null;
+  if (!line || (!line.includes("|") && !hasTaskPrefix) || /^task title\b/i.test(line) || /^allowed\b/i.test(line)) return null;
 
   const parts = line.split("|").map((part) => part.trim()).filter(Boolean);
   const title = parts.shift() || "";
