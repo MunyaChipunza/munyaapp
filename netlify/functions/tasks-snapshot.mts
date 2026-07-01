@@ -101,6 +101,7 @@ async function handleGet(req: Request) {
       hasSnapshot: Boolean(snapshot),
       snapshotUpdatedAt: snapshot?.updatedAt || null,
       notionConfigured: Boolean(notionToken() && notionPageId()),
+      notionEnv: notionEnvHealth(),
     });
   }
   if (!snapshot) {
@@ -544,6 +545,28 @@ function notionToken() {
 
 function notionPageId() {
   return env("NOTION_TASKS_PAGE_ID") || env("TASKS_NOTION_PAGE_ID");
+}
+
+function notionEnvHealth() {
+  return {
+    token: {
+      configured: Boolean(notionToken()),
+      notionToken: envPresence("NOTION_TOKEN"),
+      tasksNotionToken: envPresence("TASKS_NOTION_TOKEN"),
+    },
+    pageId: {
+      configured: Boolean(notionPageId()),
+      notionTasksPageId: envPresence("NOTION_TASKS_PAGE_ID"),
+      tasksNotionPageId: envPresence("TASKS_NOTION_PAGE_ID"),
+    },
+  };
+}
+
+function envPresence(key: string) {
+  return {
+    netlify: Boolean(Netlify.env.get(key)?.trim()),
+    process: Boolean(process.env[key]?.trim()),
+  };
 }
 
 function chunkMarkdown(markdown: string, maxLength: number) {
