@@ -540,7 +540,7 @@ function sha256Hex(value: string) {
 }
 
 function notionToken() {
-  return env("NOTION_TOKEN") || env("TASKS_NOTION_TOKEN");
+  return env("LIVE_TASKS_NOTION_TOKEN") || env("NOTION_TOKEN") || env("TASKS_NOTION_TOKEN");
 }
 
 function notionPageId() {
@@ -551,6 +551,7 @@ function notionEnvHealth() {
   return {
     token: {
       configured: Boolean(notionToken()),
+      liveTasksNotionToken: envPresence("LIVE_TASKS_NOTION_TOKEN"),
       notionToken: envPresence("NOTION_TOKEN"),
       tasksNotionToken: envPresence("TASKS_NOTION_TOKEN"),
     },
