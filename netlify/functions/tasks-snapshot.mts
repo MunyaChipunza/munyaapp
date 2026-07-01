@@ -430,12 +430,13 @@ async function notionRequest(token: string, url: string, init: RequestInit, atte
 }
 
 function notionBlocksForSnapshot(snapshot: TaskSnapshot): NotionBlock[] {
-  const markdown = renderTaskSections(snapshot);
+  const reference = renderClaudeReference(snapshot);
   const intro = [
     `Updated: ${snapshot.updatedAt}`,
     `Source: ${snapshot.source}`,
     `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records`,
     "This page is automatically overwritten by the Munya App Netlify task bridge.",
+    "For Claude: use the brief and reference below. Future recurring calendar events beyond the planning horizon are intentionally omitted from this Notion page to avoid burying real tasks.",
   ].join("\n");
 
   return [
@@ -443,8 +444,8 @@ function notionBlocksForSnapshot(snapshot: TaskSnapshot): NotionBlock[] {
     paragraphBlock(intro),
     headingBlock("Claude Brief - Read This First", "heading_2"),
     codeBlock(renderClaudeBrief(snapshot)),
-    headingBlock("Full Snapshot - Reference Only", "heading_2"),
-    ...chunkMarkdown(markdown, 1800).map(codeBlock),
+    headingBlock("Claude Reference - Operational View", "heading_2"),
+    ...chunkMarkdown(reference, 1800).map(codeBlock),
   ];
 }
 
@@ -522,6 +523,48 @@ function formatBriefTaskLine(task: TaskSnapshotItem) {
 
 function isCalendarTask(task: TaskSnapshotItem) {
   return task.source === "gcal" || task.list.toLowerCase() === "calendar" || Boolean(task.sourceCalendarName);
+}
+
+function renderClaudeReference(snapshot: TaskSnapshot) {
+  const today = todayInZone();
+  const horizon = addDays(today, 30);
+  const active = snapshot.tasks
+    .filter((task) => !task.deletedAt && !task.done)
+    .sort(compareTasks);
+  const done = snapshot.tasks
+    .filter((task) => !task.deletedAt && task.done)
+    .sort(compareDoneTasks);
+  const appTasks = active.filter((task) => !isCalendarTask(task));
+  const calendarWindow = active.filter((task) => isCalendarTask(task) && task.dueDate && task.dueDate >= today && task.dueDate <= horizon);
+  const noDateCalendar = active.filter((task) => isCalendarTask(task) && !task.dueDate);
+  const omittedFutureCalendar = active.filter((task) => isCalendarTask(task) && task.dueDate && task.dueDate > horizon).length;
+  const omittedDone = Math.max(0, done.length - 25);
+
+  const lines = [
+    "## Claude Reference - Operational View",
+    `Planning horizon: ${today} to ${horizon}`,
+    `This Notion view keeps Claude focused. It includes all active app-only tasks, calendar events in the next 30 days, and the 25 most recent completed tasks.`,
+    `Omitted from this Notion view: ${omittedFutureCalendar} future calendar recurrences after ${horizon}, ${noDateCalendar.length} undated calendar items, ${omittedDone} older completed tasks.`,
+    "Full raw JSON and markdown remain stored in the private Netlify snapshot endpoint.",
+    "",
+    `### Active App-only Tasks - All (${appTasks.length})`,
+    ...renderLimitedBriefList(appTasks, 200),
+    "",
+    `### Calendar Events - Next 30 Days (${calendarWindow.length})`,
+    ...renderLimitedBriefList(calendarWindow, 120),
+    "",
+    `### Recently Done - Latest 25 (${Math.min(done.length, 25)})`,
+    ...renderLimitedBriefList(done.slice(0, 25), 25),
+  ];
+
+  return lines.join("\n");
+}
+
+function renderLimitedBriefList(tasks: TaskSnapshotItem[], max: number) {
+  if (!tasks.length) return ["- None"];
+  const visible = tasks.slice(0, max).map(formatBriefTaskLine);
+  if (tasks.length > max) visible.push(`- ${tasks.length - max} more omitted from this Notion view.`);
+  return visible;
 }
 
 function headingBlock(text: string, type: "heading_1" | "heading_2") {
