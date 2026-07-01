@@ -414,10 +414,10 @@ function verifyIntakeToken(req: Request): AuthResult {
     bearer;
 
   if (suppliedToken && configuredToken && suppliedToken === configuredToken) {
-    return { ok: true, email: "claude" };
+    return { ok: true, email: "ai-assistant" };
   }
   if (suppliedToken && configuredTokenHash && sha256Hex(suppliedToken) === configuredTokenHash) {
-    return { ok: true, email: "claude" };
+    return { ok: true, email: "ai-assistant" };
   }
   return { ok: false, status: 401, message: "Missing or invalid task intake token." };
 }
