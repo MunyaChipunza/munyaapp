@@ -1259,10 +1259,10 @@ function initGcal(){
   _autoAuthAttempted = true;
   $('gcal-bar').classList.add('hidden');
   scheduleGoogleTokenRefresh();
-  if(!_syncTimer) _syncTimer=setInterval(syncPull,30000);
+  if(!_syncTimer) _syncTimer=setInterval(()=>syncPull().then(()=>pullTaskIntake()).catch(()=>{}),30000);
   if(!_calendarTimer) _calendarTimer=setInterval(fetchGcalEvents,3600000);
   scheduleTaskBridgePush(3000);
-  syncPull().then(()=>fetchGcalEvents()).catch(()=>{});
+  syncPull().then(()=>pullTaskIntake()).then(()=>fetchGcalEvents()).catch(()=>{});
 }
 
 let _tokenClient = null;
@@ -1391,8 +1391,10 @@ function authHeaders(extra={}){
 }
 
 const TASK_BRIDGE_ENDPOINT = '/api/tasks-snapshot';
+const TASK_INTAKE_ENDPOINT = '/api/task-intake';
 let _taskBridgeTimer = null;
 let _lastTaskBridgeBody = '';
+let _pullingTaskIntake = false;
 
 function taskBridgeBody(){
   return JSON.stringify({
@@ -1427,6 +1429,53 @@ async function pushTaskBridge(){
     console.warn('Task snapshot bridge:', e);
   }
   return false;
+}
+
+async function pullTaskIntake(){
+  if(!hasFreshGoogleToken() || _pullingTaskIntake) return false;
+  _pullingTaskIntake = true;
+  try{
+    const r = await fetch(TASK_INTAKE_ENDPOINT,{
+      headers:authHeaders({'Accept':'application/json'})
+    });
+    if(r.status===401 || r.status===403){
+      console.warn('Task intake auth failed:', r.status);
+      return false;
+    }
+    if(!r.ok){
+      console.warn('Task intake failed:', r.status);
+      return false;
+    }
+    const d = await r.json().catch(()=>null);
+    const incoming = normalizeTaskSet(Array.isArray(d?.tasks) ? d.tasks : []);
+    if(!incoming.length) return true;
+
+    const before = JSON.stringify(tasks);
+    tasks = mergeTaskSets(tasks,incoming);
+    const after = JSON.stringify(tasks);
+    if(after!==before){
+      localStorage.setItem('munyaapp',after);
+      render();
+      schedulePush();
+      scheduleTaskBridgePush(0);
+      toast(`Imported ${incoming.length} Claude task${incoming.length===1?'':'s'}`);
+    }
+
+    const ids = incoming.map(task=>task.id).filter(Boolean);
+    if(ids.length){
+      await fetch(TASK_INTAKE_ENDPOINT,{
+        method:'POST',
+        headers:authHeaders({'Content-Type':'application/json; charset=UTF-8'}),
+        body:JSON.stringify({action:'ack',ids})
+      }).catch(e=>console.warn('Task intake ack:', e));
+    }
+    return true;
+  }catch(e){
+    console.warn('Task intake:', e);
+    return false;
+  }finally{
+    _pullingTaskIntake = false;
+  }
 }
 
 function buildMultipartUpload(metadata, content){
@@ -1840,6 +1889,7 @@ async function manualSync(){
   _pushTimer = null;
   await syncPush();
   await syncPull();
+  await pullTaskIntake();
   await fetchGcalEvents();
   await pushTaskBridge();
 }
