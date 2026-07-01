@@ -1,5 +1,6 @@
 import { getStore } from "@netlify/blobs";
 import type { Config, Context } from "@netlify/functions";
+import { createHash } from "node:crypto";
 
 declare const Netlify: {
   env: {
@@ -66,6 +67,9 @@ type AuthResult =
 const STORE_NAME = "munyaapp-task-snapshots";
 const SNAPSHOT_KEY = "latest";
 const TIME_ZONE = "Africa/Johannesburg";
+const DEFAULT_READ_TOKEN_SHA256 = "046980294f19f84508d5e6872c3fedcadeb3a751241dd3b6a65347250b912986";
+const DEFAULT_ALLOWED_EMAILS = ["chipunzamunya@gmail.com", "engineering@hydrofire.co.za"];
+const DEFAULT_GOOGLE_CLIENT_ID = "257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com";
 
 export default async (req: Request, _context: Context) => {
   try {
@@ -221,7 +225,7 @@ function normalizeLinks(raw: unknown) {
 
 function verifyRead(req: Request): AuthResult {
   const configuredToken = env("TASKS_READ_TOKEN");
-  if (!configuredToken) return { ok: true, email: "public" };
+  const configuredTokenHash = env("TASKS_READ_TOKEN_SHA256") || DEFAULT_READ_TOKEN_SHA256;
 
   const url = new URL(req.url);
   const auth = req.headers.get("authorization") || "";
@@ -230,7 +234,10 @@ function verifyRead(req: Request): AuthResult {
     req.headers.get("x-tasks-read-token") ||
     bearer;
 
-  if (suppliedToken && suppliedToken === configuredToken) {
+  if (suppliedToken && configuredToken && suppliedToken === configuredToken) {
+    return { ok: true, email: "reader" };
+  }
+  if (suppliedToken && configuredTokenHash && sha256Hex(suppliedToken) === configuredTokenHash) {
     return { ok: true, email: "reader" };
   }
 
@@ -243,7 +250,9 @@ async function verifyWrite(req: Request): Promise<AuthResult> {
     return { ok: true, email: "write-token" };
   }
 
-  const allowedEmails = csvEnv("TASKS_ALLOWED_EMAILS").map((email) => email.toLowerCase());
+  const configuredAllowedEmails = csvEnv("TASKS_ALLOWED_EMAILS");
+  const allowedEmails = (configuredAllowedEmails.length ? configuredAllowedEmails : DEFAULT_ALLOWED_EMAILS)
+    .map((email) => email.toLowerCase());
   if (!allowedEmails.length) {
     return { ok: false, status: 500, message: "TASKS_ALLOWED_EMAILS is not configured." };
   }
@@ -271,7 +280,7 @@ async function verifyWrite(req: Request): Promise<AuthResult> {
     return { ok: false, status: 403, message: "Google account is not allowed to publish task snapshots." };
   }
 
-  const expectedClientId = env("TASKS_GOOGLE_CLIENT_ID");
+  const expectedClientId = env("TASKS_GOOGLE_CLIENT_ID") || DEFAULT_GOOGLE_CLIENT_ID;
   if (expectedClientId && stringField(info.aud) !== expectedClientId) {
     return { ok: false, status: 403, message: "Google token audience does not match this app." };
   }
@@ -398,6 +407,10 @@ function env(key: string) {
 
 function csvEnv(key: string) {
   return env(key).split(",").map((value) => value.trim()).filter(Boolean);
+}
+
+function sha256Hex(value: string) {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function jsonResponse(body: unknown, status = 200) {
