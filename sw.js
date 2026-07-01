@@ -1,4 +1,4 @@
-const CACHE_NAME = 'munyaapp-v7';
+const CACHE_NAME = 'munyaapp-v8';
 const ASSETS = [
   '/manifest.json',
   '/icons/icon-192.png',
@@ -24,6 +24,11 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+  if(e.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/.netlify/functions/')){
+    e.respondWith(fetch(e.request));
+    return;
+  }
   // Always fetch HTML fresh from network — never serve stale app shell
   if(e.request.mode === 'navigate' || e.request.url.endsWith('index.html')){
     e.respondWith(
