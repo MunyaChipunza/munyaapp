@@ -64,12 +64,15 @@ type AuthResult =
   | { ok: true; email: string }
   | { ok: false; status: number; message: string };
 
+type NotionBlock = Record<string, unknown>;
+
 const STORE_NAME = "munyaapp-task-snapshots";
 const SNAPSHOT_KEY = "latest";
 const TIME_ZONE = "Africa/Johannesburg";
 const DEFAULT_READ_TOKEN_SHA256 = "046980294f19f84508d5e6872c3fedcadeb3a751241dd3b6a65347250b912986";
 const DEFAULT_ALLOWED_EMAILS = ["chipunzamunya@gmail.com", "engineering@hydrofire.co.za"];
 const DEFAULT_GOOGLE_CLIENT_ID = "257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com";
+const NOTION_VERSION = "2022-06-28";
 
 export default async (req: Request, _context: Context) => {
   try {
@@ -91,11 +94,19 @@ async function handleGet(req: Request) {
   if (!readAuth.ok) return jsonResponse({ error: readAuth.message }, readAuth.status);
 
   const snapshot = await getSnapshot();
+  const url = new URL(req.url);
+  if (url.searchParams.get("health") === "1") {
+    return jsonResponse({
+      ok: true,
+      hasSnapshot: Boolean(snapshot),
+      snapshotUpdatedAt: snapshot?.updatedAt || null,
+      notionConfigured: Boolean(notionToken() && notionPageId()),
+    });
+  }
   if (!snapshot) {
     return textResponse("No Munya App task snapshot has been pushed yet.", 404);
   }
 
-  const url = new URL(req.url);
   const format = url.searchParams.get("format") || "";
   const wantsMarkdown = format.toLowerCase() === "markdown" ||
     (req.headers.get("accept") || "").includes("text/markdown");
@@ -139,7 +150,8 @@ async function handlePost(req: Request) {
   };
 
   await getTaskStore().setJSON(SNAPSHOT_KEY, snapshot);
-  return jsonResponse({ ok: true, updatedAt: snapshot.updatedAt, counts: snapshot.counts });
+  const notion = await syncSnapshotToNotion(snapshot);
+  return jsonResponse({ ok: true, updatedAt: snapshot.updatedAt, counts: snapshot.counts, notion });
 }
 
 function getTaskStore() {
@@ -335,6 +347,119 @@ function renderMarkdown(snapshot: TaskSnapshot) {
   return lines.join("\n");
 }
 
+async function syncSnapshotToNotion(snapshot: TaskSnapshot) {
+  const token = notionToken();
+  const pageId = notionPageId();
+  if (!token || !pageId) return { ok: false, skipped: true, reason: "notion_not_configured" };
+
+  try {
+    const blocks = notionBlocksForSnapshot(snapshot);
+    const existingBlocks = await listNotionChildren(pageId, token);
+    for (const blockId of existingBlocks) {
+      await notionRequest(token, `https://api.notion.com/v1/blocks/${blockId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ archived: true }),
+      });
+    }
+    for (const batch of chunkArray(blocks, 90)) {
+      await notionRequest(token, `https://api.notion.com/v1/blocks/${pageId}/children`, {
+        method: "PATCH",
+        body: JSON.stringify({ children: batch }),
+      });
+    }
+    return { ok: true, pageId, blockCount: blocks.length };
+  } catch (error) {
+    console.error("Notion mirror failed", error);
+    return { ok: false, skipped: false, reason: "notion_update_failed" };
+  }
+}
+
+async function listNotionChildren(pageId: string, token: string) {
+  const blockIds: string[] = [];
+  let startCursor = "";
+  do {
+    const url = new URL(`https://api.notion.com/v1/blocks/${pageId}/children`);
+    url.searchParams.set("page_size", "100");
+    if (startCursor) url.searchParams.set("start_cursor", startCursor);
+    const response = await notionRequest(token, url.toString(), { method: "GET" });
+    const data = await response.json() as { results?: Array<{ id?: string }>; has_more?: boolean; next_cursor?: string | null };
+    blockIds.push(...(data.results || []).map((block) => block.id).filter((id): id is string => Boolean(id)));
+    startCursor = data.has_more && data.next_cursor ? data.next_cursor : "";
+  } while (startCursor);
+  return blockIds;
+}
+
+async function notionRequest(token: string, url: string, init: RequestInit, attempt = 0): Promise<Response> {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Notion-Version": NOTION_VERSION,
+      ...(init.headers || {}),
+    },
+  });
+
+  if (response.status === 429 && attempt < 3) {
+    const retryAfter = Number(response.headers.get("retry-after") || 1);
+    await sleep(Math.max(1, retryAfter) * 1000);
+    return notionRequest(token, url, init, attempt + 1);
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Notion API ${response.status}: ${text.slice(0, 500)}`);
+  }
+  return response;
+}
+
+function notionBlocksForSnapshot(snapshot: TaskSnapshot): NotionBlock[] {
+  const markdown = renderMarkdown(snapshot);
+  const intro = [
+    `Updated: ${snapshot.updatedAt}`,
+    `Source: ${snapshot.source}`,
+    `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records`,
+    "This page is automatically overwritten by the Munya App Netlify task bridge.",
+  ].join("\n");
+
+  return [
+    headingBlock("Munya App Live Tasks", "heading_1"),
+    paragraphBlock(intro),
+    ...chunkMarkdown(markdown, 1800).map(codeBlock),
+  ];
+}
+
+function headingBlock(text: string, type: "heading_1" | "heading_2") {
+  return {
+    object: "block",
+    type,
+    [type]: { rich_text: richText(text) },
+  };
+}
+
+function paragraphBlock(text: string) {
+  return {
+    object: "block",
+    type: "paragraph",
+    paragraph: { rich_text: richText(text) },
+  };
+}
+
+function codeBlock(text: string) {
+  return {
+    object: "block",
+    type: "code",
+    code: {
+      language: "plain text",
+      rich_text: richText(text),
+    },
+  };
+}
+
+function richText(text: string) {
+  return [{ type: "text", text: { content: text.slice(0, 2000) } }];
+}
+
 function formatTaskLine(task: TaskSnapshotItem) {
   const checkbox = task.done ? "[x]" : "[ ]";
   const meta = [
@@ -411,6 +536,43 @@ function csvEnv(key: string) {
 
 function sha256Hex(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function notionToken() {
+  return env("NOTION_TOKEN") || env("TASKS_NOTION_TOKEN");
+}
+
+function notionPageId() {
+  return env("NOTION_TASKS_PAGE_ID") || env("TASKS_NOTION_PAGE_ID");
+}
+
+function chunkMarkdown(markdown: string, maxLength: number) {
+  const chunks: string[] = [];
+  let remaining = markdown;
+  while (remaining.length > maxLength) {
+    const splitAt = Math.max(
+      remaining.lastIndexOf("\n## ", maxLength),
+      remaining.lastIndexOf("\n- ", maxLength),
+      remaining.lastIndexOf("\n", maxLength),
+    );
+    const index = splitAt > 0 ? splitAt : maxLength;
+    chunks.push(remaining.slice(0, index).trim());
+    remaining = remaining.slice(index).trim();
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function jsonResponse(body: unknown, status = 200) {
