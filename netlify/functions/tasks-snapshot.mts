@@ -527,7 +527,7 @@ function markdownEscape(value: string) {
 }
 
 function env(key: string) {
-  return Netlify.env.get(key)?.trim() || "";
+  return Netlify.env.get(key)?.trim() || process.env[key]?.trim() || "";
 }
 
 function csvEnv(key: string) {
