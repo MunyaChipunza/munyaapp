@@ -736,7 +736,7 @@ function mergeTaskSets(localList,remoteList){
 
 // ── Helpers ───────────────────────────────────────────
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
-function save(){localStorage.setItem('munyaapp',JSON.stringify(tasks));schedulePush();}
+function save(){localStorage.setItem('munyaapp',JSON.stringify(tasks));schedulePush();scheduleTaskBridgePush();}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function $(id){return document.getElementById(id)}
 
@@ -1225,10 +1225,11 @@ function initDragDrop(){
 
 // ── Google Calendar ───────────────────────────────────
 const GCAL_CLIENT_ID = '257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com';
-const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.appdata';
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email';
 const SYNC_FILE_NAME = 'munyaapp-tasks.json';
 const GCAL_TOKEN_KEY = 'gcal_token';
 const GCAL_TOKEN_EXPIRES_KEY = 'gcal_token_expires_at';
+const GCAL_SCOPE_KEY = 'gcal_scope';
 const GCAL_CONNECTED_KEY = 'gcal_connected';
 let _gcalToken = localStorage.getItem(GCAL_TOKEN_KEY) || '';
 let _gcalTokenExpiresAt = Number(localStorage.getItem(GCAL_TOKEN_EXPIRES_KEY) || 0);
@@ -1260,6 +1261,7 @@ function initGcal(){
   scheduleGoogleTokenRefresh();
   if(!_syncTimer) _syncTimer=setInterval(syncPull,30000);
   if(!_calendarTimer) _calendarTimer=setInterval(fetchGcalEvents,3600000);
+  scheduleTaskBridgePush(3000);
   syncPull().then(()=>fetchGcalEvents()).catch(()=>{});
 }
 
@@ -1274,7 +1276,7 @@ let _pendingTokenPrompt = '';
 let _tokenRequestTimeout = null;
 
 function hasFreshGoogleToken(bufferMs=60000){
-  return Boolean(_gcalToken && _gcalTokenExpiresAt && Date.now()+bufferMs < _gcalTokenExpiresAt);
+  return Boolean(_gcalToken && _gcalTokenExpiresAt && Date.now()+bufferMs < _gcalTokenExpiresAt && localStorage.getItem(GCAL_SCOPE_KEY)===GCAL_SCOPE);
 }
 
 function storeGoogleToken(resp){
@@ -1283,6 +1285,7 @@ function storeGoogleToken(resp){
   _gcalTokenExpiresAt = Date.now() + ttlSeconds * 1000;
   localStorage.setItem(GCAL_TOKEN_KEY, _gcalToken);
   localStorage.setItem(GCAL_TOKEN_EXPIRES_KEY, String(_gcalTokenExpiresAt));
+  localStorage.setItem(GCAL_SCOPE_KEY, GCAL_SCOPE);
   localStorage.setItem(GCAL_CONNECTED_KEY, '1');
   scheduleGoogleTokenRefresh();
 }
@@ -1300,6 +1303,7 @@ function ensureTokenClient(){
   _tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: GCAL_CLIENT_ID,
     scope: GCAL_SCOPE,
+    include_granted_scopes: true,
     callback: (resp)=>{
       clearTimeout(_tokenRequestTimeout);
       const resolve = _pendingTokenResolve;
@@ -1360,6 +1364,7 @@ function handleGcalCallback(){
 function clearGoogleAuth(){
   localStorage.removeItem(GCAL_TOKEN_KEY);
   localStorage.removeItem(GCAL_TOKEN_EXPIRES_KEY);
+  localStorage.removeItem(GCAL_SCOPE_KEY);
   _gcalToken='';
   _gcalTokenExpiresAt=0;
   _syncFileId=null;
@@ -1383,6 +1388,45 @@ async function ensureGoogleAccess(interactive=false){
 
 function authHeaders(extra={}){
   return _gcalToken ? {...extra, Authorization:'Bearer '+_gcalToken} : extra;
+}
+
+const TASK_BRIDGE_ENDPOINT = '/api/tasks-snapshot';
+let _taskBridgeTimer = null;
+let _lastTaskBridgeBody = '';
+
+function taskBridgeBody(){
+  return JSON.stringify({
+    source:'munyaapp-web',
+    clientUpdatedAt:nowIso(),
+    tasks:normalizeTaskSet(tasks)
+  });
+}
+
+function scheduleTaskBridgePush(delay=2500){
+  clearTimeout(_taskBridgeTimer);
+  _taskBridgeTimer = setTimeout(pushTaskBridge, delay);
+}
+
+async function pushTaskBridge(){
+  if(!hasFreshGoogleToken()) return false;
+  const body = taskBridgeBody();
+  if(body===_lastTaskBridgeBody) return true;
+  try{
+    const r = await fetch(TASK_BRIDGE_ENDPOINT,{
+      method:'POST',
+      headers:authHeaders({'Content-Type':'application/json; charset=UTF-8'}),
+      body
+    });
+    if(r.ok){
+      _lastTaskBridgeBody = body;
+      return true;
+    }
+    if(r.status===401 && localStorage.getItem(GCAL_SCOPE_KEY)!==GCAL_SCOPE) clearGoogleAuth();
+    console.warn('Task snapshot bridge failed:', r.status);
+  }catch(e){
+    console.warn('Task snapshot bridge:', e);
+  }
+  return false;
 }
 
 function buildMultipartUpload(metadata, content){
@@ -1736,11 +1780,13 @@ async function syncPush(){
     if(mergedBody!==JSON.stringify(tasks)){
       tasks=merged;
       localStorage.setItem('munyaapp',mergedBody);
+      scheduleTaskBridgePush();
       render();
     }
     if(!merged.length || mergedBody===remoteBody){
       _lastRemote=remoteBody;
       setSyncUI('ok');
+      scheduleTaskBridgePush(0);
       return;
     }
     const r=await writeRemoteTasks(mergedBody);
@@ -1750,6 +1796,7 @@ async function syncPush(){
     if(d?.id) _syncFileId=d.id;
     _lastRemote=mergedBody;
     setSyncUI('ok');
+    scheduleTaskBridgePush(0);
   }catch(e){
     console.error('Sync push:', e);
     setSyncUI('error');
@@ -1768,12 +1815,14 @@ async function syncPull(){
     if(mergedBody!==JSON.stringify(tasks)){
       tasks=merged;
       localStorage.setItem('munyaapp', mergedBody);
+      scheduleTaskBridgePush();
       render();
       toast('↻ Tasks updated');
     }
     if(mergedBody!==remoteBody) schedulePush();
     _lastRemote=remoteBody;
     setSyncUI('ok');
+    scheduleTaskBridgePush(0);
   }catch(e){
     console.error('Sync pull:', e);
     setSyncUI('error');
@@ -1792,6 +1841,7 @@ async function manualSync(){
   await syncPush();
   await syncPull();
   await fetchGcalEvents();
+  await pushTaskBridge();
 }
 
 // ── Init ─────────────────────────────────────────────────
