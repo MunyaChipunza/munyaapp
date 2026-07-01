@@ -306,6 +306,24 @@ async function verifyWrite(req: Request): Promise<AuthResult> {
 }
 
 function renderMarkdown(snapshot: TaskSnapshot) {
+  const lines = [
+    "# Munya App Task Snapshot",
+    "",
+    `Updated: ${snapshot.updatedAt}`,
+    `Updated by: ${snapshot.updatedBy}`,
+    `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records`,
+    "",
+    renderClaudeBrief(snapshot),
+    "",
+    "## Full Snapshot - Reference Only",
+    "",
+    renderTaskSections(snapshot),
+  ];
+
+  return lines.join("\n");
+}
+
+function renderTaskSections(snapshot: TaskSnapshot) {
   const active = snapshot.tasks
     .filter((task) => !task.deletedAt && !task.done)
     .sort(compareTasks);
@@ -324,14 +342,7 @@ function renderMarkdown(snapshot: TaskSnapshot) {
     ["Done", done],
   ] as const;
 
-  const lines = [
-    "# Munya App Task Snapshot",
-    "",
-    `Updated: ${snapshot.updatedAt}`,
-    `Updated by: ${snapshot.updatedBy}`,
-    `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records`,
-    "",
-  ];
+  const lines: string[] = [];
 
   sections.forEach(([title, tasks]) => {
     lines.push(`## ${title} (${tasks.length})`);
@@ -419,7 +430,7 @@ async function notionRequest(token: string, url: string, init: RequestInit, atte
 }
 
 function notionBlocksForSnapshot(snapshot: TaskSnapshot): NotionBlock[] {
-  const markdown = renderMarkdown(snapshot);
+  const markdown = renderTaskSections(snapshot);
   const intro = [
     `Updated: ${snapshot.updatedAt}`,
     `Source: ${snapshot.source}`,
@@ -430,8 +441,87 @@ function notionBlocksForSnapshot(snapshot: TaskSnapshot): NotionBlock[] {
   return [
     headingBlock("Munya App Live Tasks", "heading_1"),
     paragraphBlock(intro),
+    headingBlock("Claude Brief - Read This First", "heading_2"),
+    codeBlock(renderClaudeBrief(snapshot)),
+    headingBlock("Full Snapshot - Reference Only", "heading_2"),
     ...chunkMarkdown(markdown, 1800).map(codeBlock),
   ];
+}
+
+function renderClaudeBrief(snapshot: TaskSnapshot) {
+  const today = todayInZone();
+  const tomorrow = addDays(today, 1);
+  const nextWeek = addDays(today, 7);
+  const active = snapshot.tasks
+    .filter((task) => !task.deletedAt && !task.done)
+    .sort(compareTasks);
+  const done = snapshot.tasks
+    .filter((task) => !task.deletedAt && task.done)
+    .sort(compareDoneTasks)
+    .slice(0, 10);
+  const todayTasks = active.filter((task) => task.dueDate === today);
+  const tomorrowTasks = active.filter((task) => task.dueDate === tomorrow);
+  const overdueTasks = active.filter((task) => task.dueDate && task.dueDate < today);
+  const nextSevenAppTasks = active
+    .filter((task) => !isCalendarTask(task) && task.dueDate && task.dueDate > tomorrow && task.dueDate <= nextWeek)
+    .slice(0, 20);
+
+  const lines = [
+    "## Claude Brief - Read This First",
+    `Snapshot date: ${today} (${TIME_ZONE})`,
+    `Snapshot updated: ${snapshot.updatedAt}`,
+    "Use this brief for immediate planning. Do not infer today or tomorrow from future recurring calendar events in the full snapshot below.",
+    `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records.`,
+    "",
+    ...renderBriefDate("Today", today, todayTasks),
+    "",
+    ...renderBriefDate("Tomorrow", tomorrow, tomorrowTasks),
+    "",
+    `### Overdue - before ${today} (${overdueTasks.length})`,
+    ...renderBriefList(overdueTasks),
+    "",
+    `### App-only Next 7 Days - ${addDays(tomorrow, 1)} to ${nextWeek} (${nextSevenAppTasks.length})`,
+    ...renderBriefList(nextSevenAppTasks),
+    "",
+    `### Recently Done (${done.length})`,
+    ...renderBriefList(done),
+  ];
+
+  return lines.join("\n");
+}
+
+function renderBriefDate(label: string, date: string, tasks: TaskSnapshotItem[]) {
+  const appOnly = tasks.filter((task) => !isCalendarTask(task)).sort(compareTasks);
+  const calendar = tasks.filter(isCalendarTask).sort(compareTasks);
+  return [
+    `### ${label} - ${date}`,
+    `App-only tasks (${appOnly.length})`,
+    ...renderBriefList(appOnly),
+    "",
+    `Calendar events (${calendar.length})`,
+    ...renderBriefList(calendar),
+  ];
+}
+
+function renderBriefList(tasks: TaskSnapshotItem[]) {
+  if (!tasks.length) return ["- None"];
+  return tasks.map(formatBriefTaskLine);
+}
+
+function formatBriefTaskLine(task: TaskSnapshotItem) {
+  const meta = [
+    taskTime(task),
+    isCalendarTask(task) ? task.sourceCalendarName : task.list,
+    task.priority,
+    task.dueDate ? `due ${task.dueDate}` : "",
+    task.doneAt ? `done ${task.doneAt}` : "",
+  ].filter((value): value is string => Boolean(value));
+  const links = task.links?.slice(0, 4).map((link) => `[${markdownEscape(link.label)}](${link.url})`).join(", ");
+  return `- ${task.done ? "[x] " : ""}${markdownEscape(task.title)}${meta.length ? ` (${meta.map(markdownEscape).join(" | ")})` : ""}${links ? ` Links: ${links}` : ""}`;
+}
+
+function isCalendarTask(task: TaskSnapshotItem) {
+  return task.source === "gcal" || task.list.toLowerCase() === "calendar" || Boolean(task.sourceCalendarName);
 }
 
 function headingBlock(text: string, type: "heading_1" | "heading_2") {
