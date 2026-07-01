@@ -1,5 +1,6 @@
 import { getStore } from "@netlify/blobs";
 import type { Config, Context } from "@netlify/functions";
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 
 declare const Netlify: {
@@ -540,7 +541,21 @@ function sha256Hex(value: string) {
 }
 
 function notionToken() {
-  return env("MUNYA_NOTION_BRIDGE") || env("LIVE_TASKS_NOTION_TOKEN") || env("NOTION_TOKEN") || env("TASKS_NOTION_TOKEN");
+  return base64Env("MUNYA_NOTION_BRIDGE_B64") ||
+    env("MUNYA_NOTION_BRIDGE") ||
+    env("LIVE_TASKS_NOTION_TOKEN") ||
+    env("NOTION_TOKEN") ||
+    env("TASKS_NOTION_TOKEN");
+}
+
+function base64Env(key: string) {
+  const value = env(key);
+  if (!value) return "";
+  try {
+    return Buffer.from(value, "base64").toString("utf8").trim();
+  } catch {
+    return "";
+  }
 }
 
 function notionPageId() {
@@ -551,6 +566,7 @@ function notionEnvHealth() {
   return {
     token: {
       configured: Boolean(notionToken()),
+      munyaNotionBridgeB64: envPresence("MUNYA_NOTION_BRIDGE_B64"),
       munyaNotionBridge: envPresence("MUNYA_NOTION_BRIDGE"),
       liveTasksNotionToken: envPresence("LIVE_TASKS_NOTION_TOKEN"),
       notionToken: envPresence("NOTION_TOKEN"),
