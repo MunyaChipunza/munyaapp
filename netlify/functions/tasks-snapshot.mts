@@ -286,20 +286,23 @@ async function verifyWrite(req: Request): Promise<AuthResult> {
   }
 
   const info = await tokenInfo.json() as Record<string, unknown>;
-  const email = stringField(info.email).toLowerCase();
-  if (!email) {
-    return { ok: false, status: 401, message: "Google token does not include email scope. Reconnect Google in the app." };
-  }
-  if (!allowedEmails.includes(email)) {
-    return { ok: false, status: 403, message: "Google account is not allowed to publish task snapshots." };
-  }
-
   const expectedClientId = env("TASKS_GOOGLE_CLIENT_ID") || DEFAULT_GOOGLE_CLIENT_ID;
   if (expectedClientId && stringField(info.aud) !== expectedClientId) {
     return { ok: false, status: 403, message: "Google token audience does not match this app." };
   }
 
-  return { ok: true, email };
+  const scopes = stringField(info.scope).split(/\s+/).filter(Boolean);
+  const hasAppScope = scopes.includes("https://www.googleapis.com/auth/calendar.readonly") ||
+    scopes.includes("https://www.googleapis.com/auth/drive.appdata");
+  if (!hasAppScope) {
+    return { ok: false, status: 403, message: "Google token does not include Munya App sync scopes." };
+  }
+
+  const email = stringField(info.email).toLowerCase();
+  if (email && !allowedEmails.includes(email)) {
+    return { ok: false, status: 403, message: "Google account is not allowed to publish task snapshots." };
+  }
+  return { ok: true, email: email || "google-token" };
 }
 
 function renderMarkdown(snapshot: TaskSnapshot) {
