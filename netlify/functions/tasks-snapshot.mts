@@ -78,7 +78,7 @@ const NOTION_VERSION = "2022-06-28";
 export default async (req: Request, _context: Context) => {
   try {
     if (req.method === "GET") return handleGet(req);
-    if (req.method === "POST") return handlePost(req);
+    if (req.method === "POST") return handlePost(req, _context);
     return textResponse("Method not allowed", 405);
   } catch (error) {
     console.error("Task snapshot function failed", error);
@@ -125,7 +125,7 @@ async function handleGet(req: Request) {
   return jsonResponse(snapshot);
 }
 
-async function handlePost(req: Request) {
+async function handlePost(req: Request, context: Context) {
   const writeAuth = await verifyWrite(req);
   if (!writeAuth.ok) return jsonResponse({ error: writeAuth.message }, writeAuth.status);
 
@@ -152,8 +152,8 @@ async function handlePost(req: Request) {
   };
 
   await getTaskStore().setJSON(SNAPSHOT_KEY, snapshot);
-  const notion = await syncSnapshotToNotion(snapshot);
-  return jsonResponse({ ok: true, updatedAt: snapshot.updatedAt, counts: snapshot.counts, notion });
+  context.waitUntil(syncSnapshotToNotion(snapshot));
+  return jsonResponse({ ok: true, updatedAt: snapshot.updatedAt, counts: snapshot.counts, notion: { queued: true } });
 }
 
 function getTaskStore() {
