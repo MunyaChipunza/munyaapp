@@ -29,7 +29,7 @@ type IntakeTask = {
   notes: string;
   createdAt: string;
   updatedAt: string;
-  source: "claude";
+  source: "ai";
   sourceKey: string;
   links?: TaskLink[];
 };
@@ -301,7 +301,7 @@ function makeTask(input: {
     notes: input.notes.trim(),
     createdAt: input.now,
     updatedAt: input.now,
-    source: "claude",
+    source: "ai",
     sourceKey: input.sourceKey,
   };
   if (input.links.length) task.links = input.links;

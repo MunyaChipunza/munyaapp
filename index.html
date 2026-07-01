@@ -1458,7 +1458,7 @@ async function pullTaskIntake(){
       render();
       schedulePush();
       scheduleTaskBridgePush(0);
-      toast(`Imported ${incoming.length} Claude task${incoming.length===1?'':'s'}`);
+      toast(`Imported ${incoming.length} AI task${incoming.length===1?'':'s'}`);
     }
 
     const ids = incoming.map(task=>task.id).filter(Boolean);

@@ -436,15 +436,15 @@ function notionBlocksForSnapshot(snapshot: TaskSnapshot): NotionBlock[] {
     `Source: ${snapshot.source}`,
     `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records`,
     "This page is automatically overwritten by the Munya App Netlify task bridge.",
-    "For Claude: use the brief and reference below. Future recurring calendar events beyond the planning horizon are intentionally omitted from this Notion page to avoid burying real tasks.",
+    "For Claude, ChatGPT, and other AI assistants: use the brief and reference below. Future recurring calendar events beyond the planning horizon are intentionally omitted from this Notion page to avoid burying real tasks.",
   ].join("\n");
 
   return [
     headingBlock("Munya App Live Tasks", "heading_1"),
     paragraphBlock(intro),
-    headingBlock("Claude Brief - Read This First", "heading_2"),
+    headingBlock("AI Brief - Read This First", "heading_2"),
     codeBlock(renderClaudeBrief(snapshot)),
-    headingBlock("Claude Reference - Operational View", "heading_2"),
+    headingBlock("AI Reference - Operational View", "heading_2"),
     ...chunkMarkdown(reference, 1800).map(codeBlock),
   ];
 }
@@ -468,10 +468,10 @@ function renderClaudeBrief(snapshot: TaskSnapshot) {
     .slice(0, 20);
 
   const lines = [
-    "## Claude Brief - Read This First",
+    "## AI Brief - Read This First",
     `Snapshot date: ${today} (${TIME_ZONE})`,
     `Snapshot updated: ${snapshot.updatedAt}`,
-    "Use this brief for immediate planning. Do not infer today or tomorrow from future recurring calendar events in the full snapshot below.",
+    "Claude, ChatGPT, and other AI assistants should use this brief for immediate planning. Do not infer today or tomorrow from future recurring calendar events in the full snapshot below.",
     `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records.`,
     "",
     ...renderBriefDate("Today", today, todayTasks),
@@ -541,9 +541,9 @@ function renderClaudeReference(snapshot: TaskSnapshot) {
   const omittedDone = Math.max(0, done.length - 25);
 
   const lines = [
-    "## Claude Reference - Operational View",
+    "## AI Reference - Operational View",
     `Planning horizon: ${today} to ${horizon}`,
-    `This Notion view keeps Claude focused. It includes all active app-only tasks, calendar events in the next 30 days, and the 25 most recent completed tasks.`,
+    `This Notion view keeps Claude, ChatGPT, and other AI assistants focused. It includes all active app-only tasks, calendar events in the next 30 days, and the 25 most recent completed tasks.`,
     `Omitted from this Notion view: ${omittedFutureCalendar} future calendar recurrences after ${horizon}, ${noDateCalendar.length} undated calendar items, ${omittedDone} older completed tasks.`,
     "Full raw JSON and markdown remain stored in the private Netlify snapshot endpoint.",
     "",
