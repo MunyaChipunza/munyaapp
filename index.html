@@ -18,6 +18,7 @@
   --bg:#EDE8FF;--surface:#E2DBFF;--col:#EAE5FF;--card:#FFFFFF;--card-h:#F5F2FF;
   --border:#CFC6FF;--border2:#BDB2FF;
   --today:#DC2626;--tom:#D97706;--up:#6366F1;--done:#059669;
+  --kalm:#B45309;
   --t1:#1A1040;--t2:#5B4E8C;--t3:#A99ED4;
   --hydrofire:#3B82F6;--personal:#8B5CF6;--family:#EC4899;
   --zimbabwe:#F97316;--career:#059669;--legal:#64748B;
@@ -81,7 +82,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);
 
 /* ── BOARD ───────────────────────────────── */
 #board{
-  display:grid;grid-template-columns:repeat(4,minmax(270px,1fr));
+  display:grid;grid-template-columns:repeat(5,minmax(270px,1fr));
   gap:14px;padding:14px 20px;
   height:calc(100vh - var(--header-h) - 46px);
   overflow-x:auto;overflow-y:hidden;
@@ -103,6 +104,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);
   border-radius:var(--radius) var(--radius) 0 0;
 }
 #col-today   .col-head::before{background:var(--today)}
+#col-kalm    .col-head::before{background:var(--kalm)}
 #col-tomorrow .col-head::before{background:var(--tom)}
 #col-upcoming .col-head::before{background:var(--up)}
 #col-done    .col-head::before{background:var(--done)}
@@ -113,6 +115,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);
   text-transform:uppercase;display:block
 }
 #col-today    .col-name{color:var(--today)}
+#col-kalm     .col-name{color:var(--kalm)}
 #col-tomorrow .col-name{color:var(--tom)}
 #col-upcoming .col-name{color:var(--up)}
 #col-done     .col-name{color:var(--done)}
@@ -123,6 +126,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);
   border-radius:12px;flex-shrink:0;
 }
 #col-today    .col-count{background:rgba(239,68,68,.15);color:var(--today)}
+#col-kalm     .col-count{background:rgba(180,83,9,.15);color:var(--kalm)}
 #col-tomorrow .col-count{background:rgba(245,158,11,.15);color:var(--tom)}
 #col-upcoming .col-count{background:rgba(99,102,241,.15);color:var(--up)}
 #col-done     .col-count{background:rgba(16,185,129,.15);color:var(--done)}
@@ -318,7 +322,7 @@ textarea.min{resize:none}
 @media(max-width:700px){
   #clock .clock-date{display:none}
   #filter-bar{padding:8px 12px}
-  #board{padding:10px 12px;gap:10px;grid-template-columns:repeat(4,85vw)}
+  #board{padding:10px 12px;gap:10px;grid-template-columns:repeat(5,85vw)}
   .logo-name{font-size:15px}
 }
 
@@ -422,6 +426,9 @@ input[type=date].min::-webkit-calendar-picker-indicator{
   <button class="filter-pill" data-list="Calendar">
     <span class="filter-dot" style="background:#0EA5E9"></span>Calendar
   </button>
+  <button class="filter-pill" data-list="KALM">
+    <span class="filter-dot" style="background:#B45309"></span>KALM
+  </button>
   <button class="filter-pill" data-list="Family">
     <span class="filter-dot" style="background:#EC4899"></span>Family
   </button>
@@ -454,6 +461,18 @@ input[type=date].min::-webkit-calendar-picker-indicator{
       <button class="col-add" data-preset="today" title="Add task">+</button>
     </div>
     <div class="col-body" id="body-today"></div>
+  </div>
+
+  <div class="col" id="col-kalm">
+    <div class="col-head">
+      <div class="col-title-wrap">
+        <span class="col-name">KALM</span>
+        <span class="col-sub" id="sub-kalm">KALM tasks</span>
+      </div>
+      <span class="col-count" id="cnt-kalm">0</span>
+      <button class="col-add" data-preset="kalm" title="Add KALM task">+</button>
+    </div>
+    <div class="col-body" id="body-kalm"></div>
   </div>
 
   <div class="col" id="col-tomorrow">
@@ -510,6 +529,7 @@ input[type=date].min::-webkit-calendar-picker-indicator{
           <option value="HydroFire">HydroFire</option>
           <option value="Personal">Personal</option>
           <option value="Calendar">Calendar</option>
+          <option value="KALM">KALM</option>
           <option value="Family">Family</option>
           <option value="Zimbabwe">Zimbabwe</option>
           <option value="Career">Career</option>
@@ -559,6 +579,7 @@ const LISTS = {
   HydroFire: '#3B82F6',
   Personal:  '#8B5CF6',
   Calendar:  '#0EA5E9',
+  KALM:      '#B45309',
   Family:    '#EC4899',
   Zimbabwe:  '#F97316',
   Career:    '#10B981',
@@ -608,6 +629,28 @@ let _lastDate= todayStr();
 let _lastMinute='';
 
 function nowIso(){return new Date().toISOString()}
+
+function isKalmTask(task){
+  const haystack=[
+    task?.list,
+    task?.title,
+    task?.notes,
+    task?.sourceCalendarName
+  ].filter(Boolean).join(' ');
+  return /\bKALM\b/i.test(haystack);
+}
+
+function assignKalmTasks(list){
+  let changed=false;
+  list.forEach(task=>{
+    if(task && task.source!=='gcal' && isKalmTask(task) && task.list!=='KALM'){
+      task.list='KALM';
+      task.updatedAt=nowIso();
+      changed=true;
+    }
+  });
+  return changed;
+}
 
 function trimLinkText(value){
   return String(value||'').trim().replace(/[.,!?;:)\]}]+$/,'');
@@ -731,6 +774,7 @@ function mergeTaskSets(localList,remoteList){
     }
     if(shouldAdoptTask(merged[index],candidate)) merged[index]=candidate;
   });
+  assignKalmTasks(merged);
   return merged;
 }
 
@@ -904,14 +948,19 @@ tick();
 function render(){
   const ft=filteredTasks();
   const td=todayStr(),tm=tomorrowStr();
+  const open=ft.filter(t=>!t.done);
+  const kalmOpen=open.filter(isKalmTask).sort(compareUpcomingTasks);
+  const nonKalmOpen=open.filter(t=>!isKalmTask(t));
   const groups={
-    today:    ft.filter(t=>!t.done&&t.dueDate&&t.dueDate<=td),
-    tomorrow: ft.filter(t=>!t.done&&t.dueDate===tm).sort(compareTimedByStart),
-    upcoming: ft.filter(t=>!t.done&&(!t.dueDate||t.dueDate>tm)).sort(compareUpcomingTasks),
+    today:    nonKalmOpen.filter(t=>t.dueDate&&t.dueDate<=td),
+    kalm:     kalmOpen,
+    tomorrow: nonKalmOpen.filter(t=>t.dueDate===tm).sort(compareTimedByStart),
+    upcoming: nonKalmOpen.filter(t=>!t.dueDate||t.dueDate>tm).sort(compareUpcomingTasks),
     done:     ft.filter(t=>t.done).sort((a,b)=>new Date(b.doneAt||0)-new Date(a.doneAt||0)),
   };
 
   renderToday(groups.today, td);
+  renderKalm(groups.kalm);
   renderSimple('tomorrow',groups.tomorrow);
   renderUpcoming(groups.upcoming);
   renderDone(groups.done);
@@ -920,9 +969,11 @@ function render(){
   const tdDate=new Date(td+'T00:00:00');
   const tmDate=new Date(tm+'T00:00:00');
   $('sub-today').textContent=tdDate.toLocaleDateString('en-ZA',{weekday:'short',day:'numeric',month:'short'});
+  $('sub-kalm').textContent=groups.kalm.length?'KALM tasks':'Nothing in KALM';
   $('sub-tomorrow').textContent=tmDate.toLocaleDateString('en-ZA',{weekday:'short',day:'numeric',month:'short'});
   $('sub-upcoming').textContent=groups.upcoming.length?'Sorted by date':'Nothing yet';
   $('cnt-today').textContent=groups.today.length;
+  $('cnt-kalm').textContent=groups.kalm.length;
   $('cnt-tomorrow').textContent=groups.tomorrow.length;
   $('cnt-upcoming').textContent=groups.upcoming.length;
   $('cnt-done').textContent=groups.done.length;
@@ -944,6 +995,13 @@ function renderSimple(col, list){
   if(!list.length){body.innerHTML=emptyHtml(col);return}
   const sorted=col==='tomorrow'?[...list].sort(compareTimedByStart):list;
   body.innerHTML=sorted.map(t=>cardHtml(t,null)).join('');
+  bindCards(body);
+}
+
+function renderKalm(list){
+  const body=$('body-kalm');
+  if(!list.length){body.innerHTML=emptyHtml('kalm');return}
+  body.innerHTML=list.map(t=>cardHtml(t,null,true)).join('');
   bindCards(body);
 }
 
@@ -1005,8 +1063,8 @@ function cardHtml(t,badge,showDate,isDone){
 }
 
 function emptyHtml(col){
-  const msgs={today:'All clear!',tomorrow:'Nothing due tomorrow',upcoming:'Nothing coming up',done:'No completed tasks yet'};
-  const icons={today:'✓',tomorrow:'☀',upcoming:'📅',done:'🏆'};
+  const msgs={today:'All clear!',kalm:'No KALM tasks here',tomorrow:'Nothing due tomorrow',upcoming:'Nothing coming up',done:'No completed tasks yet'};
+  const icons={today:'✓',kalm:'K',tomorrow:'☀',upcoming:'📅',done:'🏆'};
   return`<div class="empty"><div class="empty-icon">${icons[col]||'✓'}</div><p>${msgs[col]}</p></div>`;
 }
 
@@ -1061,7 +1119,7 @@ function openAdd(preset){
   // Pre-fill date based on column
   const dates={today:todayStr(),tomorrow:tomorrowStr(),upcoming:addDays(2)};
   $('f-due').value=preset&&dates[preset]?dates[preset]:'';
-  $('f-list').value=filter!=='all'?filter:'HydroFire';
+  $('f-list').value=preset==='kalm'?'KALM':filter!=='all'?filter:'HydroFire';
   $('overlay').classList.remove('hidden');
   $('f-title').focus();
 }
@@ -1097,9 +1155,12 @@ function saveTask(){
     if(!target || isDeletedTask(target)) return;
     Object.assign(target,data,{updatedAt:now});
     if(target.source==='gcal') target.list='Calendar';
+    else if(isKalmTask(target)) target.list='KALM';
     toast('Task updated ✓');
   }else{
-    tasks.push({id:uid(),...data,done:false,createdAt:now,updatedAt:now});
+    const task={id:uid(),...data,done:false,createdAt:now,updatedAt:now};
+    if(isKalmTask(task)) task.list='KALM';
+    tasks.push(task);
     toast('Task added ✓');
   }
   save();closeModal();render();
@@ -1213,9 +1274,12 @@ function initDragDrop(){
       const colId = col.id;
       const now = nowIso();
       if(colId==='body-today')   {task.done=false;delete task.doneAt;task.dueDate=todayStr();}
+      else if(colId==='body-kalm'){task.done=false;delete task.doneAt;task.list='KALM';}
       else if(colId==='body-tomorrow'){task.done=false;delete task.doneAt;task.dueDate=tomorrowStr();}
       else if(colId==='body-upcoming'){task.done=false;delete task.doneAt;if(!task.dueDate||task.dueDate<=tomorrowStr())task.dueDate=addDays(2);}
       else if(colId==='body-done'){task.done=true;task.doneAt=now;}
+      if(task.source==='gcal') task.list='Calendar';
+      else if(isKalmTask(task)) task.list='KALM';
       task.updatedAt = now;
       save();render();toast('Task moved ✓');
     });
@@ -1895,6 +1959,7 @@ async function manualSync(){
 }
 
 // ── Init ─────────────────────────────────────────────────
+if(assignKalmTasks(tasks)) localStorage.setItem('munyaapp',JSON.stringify(tasks));
 addMenReadingPlan();
 initDragDrop();
 render();
