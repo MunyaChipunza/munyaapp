@@ -92,7 +92,10 @@ export const config: Config = {
 
 async function handleGet(req: Request) {
   const readAuth = verifyRead(req);
-  if (!readAuth.ok) return jsonResponse({ error: readAuth.message }, readAuth.status);
+  if (!readAuth.ok) {
+    const appAuth = await verifyWrite(req);
+    if (!appAuth.ok) return jsonResponse({ error: readAuth.message }, readAuth.status);
+  }
 
   const snapshot = await getSnapshot();
   const url = new URL(req.url);
