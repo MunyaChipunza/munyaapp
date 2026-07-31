@@ -38,11 +38,11 @@ type Snapshot = {
 };
 
 export default async (req: Request) => {
-  if (req.method !== "POST") {
+  if (req.method !== "GET") {
     return json({ error: "Method not allowed" }, 405);
   }
 
-  const supplied = req.headers.get("x-cleanup-token") || "";
+  const supplied = new URL(req.url).searchParams.get("token") || "";
   const suppliedHash = createHash("sha256").update(supplied).digest("hex");
   if (!supplied || suppliedHash !== TOKEN_HASH) {
     return json({ error: "Unauthorised" }, 401);
