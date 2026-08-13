@@ -1,4 +1,4 @@
-const CACHE_NAME = 'munyaapp-v11';
+const CACHE_NAME = 'munyaapp-v12';
 const ASSETS = [
   '/manifest.json',
   '/favicon.svg',

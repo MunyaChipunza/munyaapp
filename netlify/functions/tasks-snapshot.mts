@@ -71,7 +71,7 @@ const STORE_NAME = "munyaapp-task-snapshots";
 const SNAPSHOT_KEY = "latest";
 const TIME_ZONE = "Africa/Johannesburg";
 const DEFAULT_READ_TOKEN_SHA256 = "046980294f19f84508d5e6872c3fedcadeb3a751241dd3b6a65347250b912986";
-const DEFAULT_ALLOWED_EMAILS = ["chipunzamunya@gmail.com", "engineering@hydrofire.co.za"];
+const DEFAULT_ALLOWED_EMAILS = ["chipunzamunya@gmail.com"];
 const DEFAULT_GOOGLE_CLIENT_ID = "257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com";
 const NOTION_VERSION = "2022-06-28";
 
@@ -138,7 +138,10 @@ async function handlePost(req: Request, context: Context) {
     return jsonResponse({ error: "Expected a task array or an object with a tasks array." }, 400);
   }
 
-  const tasks = rawTasks.map(normalizeTask).filter((task): task is TaskSnapshotItem => Boolean(task));
+  const tasks = rawTasks
+    .map(normalizeTask)
+    .filter((task): task is TaskSnapshotItem => Boolean(task))
+    .filter((task) => !isRetiredHydrofireOrCalendarTask(task));
   const snapshot: TaskSnapshot = {
     schemaVersion: 1,
     updatedAt: new Date().toISOString(),
@@ -295,8 +298,7 @@ async function verifyWrite(req: Request): Promise<AuthResult> {
   }
 
   const scopes = stringField(info.scope).split(/\s+/).filter(Boolean);
-  const hasAppScope = scopes.includes("https://www.googleapis.com/auth/calendar.readonly") ||
-    scopes.includes("https://www.googleapis.com/auth/drive.appdata");
+  const hasAppScope = scopes.includes("https://www.googleapis.com/auth/drive.appdata");
   if (!hasAppScope) {
     return { ok: false, status: 403, message: "Google token does not include Munya App sync scopes." };
   }
@@ -439,7 +441,7 @@ function notionBlocksForSnapshot(snapshot: TaskSnapshot): NotionBlock[] {
     `Source: ${snapshot.source}`,
     `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records`,
     "This page is automatically overwritten by the Munya App Netlify task bridge.",
-    "For Claude, ChatGPT, and other AI assistants: use the brief and reference below. Future recurring calendar events beyond the planning horizon are intentionally omitted from this Notion page to avoid burying real tasks.",
+    "For Claude, ChatGPT, and other AI assistants: use the brief and reference below. Retired HydroFire tasks and Google Calendar imports are intentionally omitted.",
   ].join("\n");
 
   return [
@@ -474,7 +476,7 @@ function renderClaudeBrief(snapshot: TaskSnapshot) {
     "## AI Brief - Read This First",
     `Snapshot date: ${today} (${TIME_ZONE})`,
     `Snapshot updated: ${snapshot.updatedAt}`,
-    "Claude, ChatGPT, and other AI assistants should use this brief for immediate planning. Do not infer today or tomorrow from future recurring calendar events in the full snapshot below.",
+    "Claude, ChatGPT, and other AI assistants should use this brief for immediate planning. HydroFire tasks and Google Calendar imports have been retired.",
     `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records.`,
     "",
     ...renderBriefDate("Today", today, todayTasks),
@@ -495,15 +497,10 @@ function renderClaudeBrief(snapshot: TaskSnapshot) {
 }
 
 function renderBriefDate(label: string, date: string, tasks: TaskSnapshotItem[]) {
-  const appOnly = tasks.filter((task) => !isCalendarTask(task)).sort(compareTasks);
-  const calendar = tasks.filter(isCalendarTask).sort(compareTasks);
   return [
     `### ${label} - ${date}`,
-    `App-only tasks (${appOnly.length})`,
-    ...renderBriefList(appOnly),
-    "",
-    `Calendar events (${calendar.length})`,
-    ...renderBriefList(calendar),
+    `Tasks (${tasks.length})`,
+    ...renderBriefList(tasks.sort(compareTasks)),
   ];
 }
 
@@ -528,6 +525,13 @@ function isCalendarTask(task: TaskSnapshotItem) {
   return task.source === "gcal" || task.list.toLowerCase() === "calendar" || Boolean(task.sourceCalendarName);
 }
 
+function isRetiredHydrofireOrCalendarTask(task: TaskSnapshotItem) {
+  return task.list.toLowerCase() === "hydrofire" ||
+    isCalendarTask(task) ||
+    /^gcal:/i.test(task.sourceKey || "") ||
+    Boolean(task.sourceCalendarId || task.sourceEventId);
+}
+
 function renderClaudeReference(snapshot: TaskSnapshot) {
   const today = todayInZone();
   const horizon = addDays(today, 30);
@@ -537,24 +541,20 @@ function renderClaudeReference(snapshot: TaskSnapshot) {
   const done = snapshot.tasks
     .filter((task) => !task.deletedAt && task.done)
     .sort(compareDoneTasks);
-  const appTasks = active.filter((task) => !isCalendarTask(task));
-  const calendarWindow = active.filter((task) => isCalendarTask(task) && task.dueDate && task.dueDate >= today && task.dueDate <= horizon);
-  const noDateCalendar = active.filter((task) => isCalendarTask(task) && !task.dueDate);
-  const omittedFutureCalendar = active.filter((task) => isCalendarTask(task) && task.dueDate && task.dueDate > horizon).length;
+  const appTasks = active.filter((task) => task.dueDate && task.dueDate <= horizon);
+  const laterTasks = active.filter((task) => task.dueDate && task.dueDate > horizon).length;
+  const undatedTasks = active.filter((task) => !task.dueDate).length;
   const omittedDone = Math.max(0, done.length - 25);
 
   const lines = [
     "## AI Reference - Operational View",
     `Planning horizon: ${today} to ${horizon}`,
-    `This Notion view keeps Claude, ChatGPT, and other AI assistants focused. It includes all active app-only tasks, calendar events in the next 30 days, and the 25 most recent completed tasks.`,
-    `Omitted from this Notion view: ${omittedFutureCalendar} future calendar recurrences after ${horizon}, ${noDateCalendar.length} undated calendar items, ${omittedDone} older completed tasks.`,
+    `This Notion view keeps Claude, ChatGPT, and other AI assistants focused. It includes active tasks due in the next 30 days and the 25 most recent completed tasks.`,
+    `Omitted from this Notion view: ${laterTasks} active tasks after ${horizon}, ${undatedTasks} undated active tasks, ${omittedDone} older completed tasks.`,
     "Full raw JSON and markdown remain stored in the private Netlify snapshot endpoint.",
     "",
-    `### Active App-only Tasks - All (${appTasks.length})`,
+    `### Active Tasks - Next 30 Days (${appTasks.length})`,
     ...renderLimitedBriefList(appTasks, 200),
-    "",
-    `### Calendar Events - Next 30 Days (${calendarWindow.length})`,
-    ...renderLimitedBriefList(calendarWindow, 120),
     "",
     `### Recently Done - Latest 25 (${Math.min(done.length, 25)})`,
     ...renderLimitedBriefList(done.slice(0, 25), 25),

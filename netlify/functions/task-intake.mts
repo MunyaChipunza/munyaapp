@@ -61,13 +61,13 @@ type NotionBlock = {
 
 const STORE_NAME = "munyaapp-task-intake";
 const STATE_KEY = "queue";
-const DEFAULT_ALLOWED_EMAILS = ["chipunzamunya@gmail.com", "engineering@hydrofire.co.za"];
+const DEFAULT_ALLOWED_EMAILS = ["chipunzamunya@gmail.com"];
 const DEFAULT_GOOGLE_CLIENT_ID = "257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com";
-const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.appdata";
+const GCAL_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 const DEFAULT_INTAKE_TOKEN_SHA256 = "0e948f959de7d1bc0cd22bcc8990fa9aded40dbc5e5aa67783dc76b128ad3bbd";
 const DEFAULT_NOTION_INBOX_PAGE_ID = "39014308-1ff0-8146-80bb-d18f4d9c48fc";
 const NOTION_VERSION = "2022-06-28";
-const VALID_LISTS = ["HydroFire", "Personal", "KALM", "Family", "Zimbabwe", "Career", "Legal"];
+const VALID_LISTS = ["Personal", "KALM", "Family", "Zimbabwe", "Career", "Legal"];
 const VALID_PRIORITIES = ["low", "medium", "high"];
 
 export default async (req: Request) => {
@@ -428,17 +428,17 @@ function verifyIntakeToken(req: Request): AuthResult {
 
 function normalizeList(raw: unknown) {
   const value = stringField(raw);
-  if (!value) return "HydroFire";
+  if (!value) return "Personal";
   const exact = VALID_LISTS.find((item) => item.toLowerCase() === value.toLowerCase());
   if (exact) return exact;
-  if (/work|hydro/i.test(value)) return "HydroFire";
+  if (/work|hydro/i.test(value)) return "Personal";
   if (/\bkalm\b/i.test(value)) return "KALM";
   if (/home|family|marriage/i.test(value)) return "Family";
   if (/zim|estate|tapera/i.test(value)) return "Zimbabwe";
   if (/career|job|book|mba|study/i.test(value)) return "Career";
   if (/legal|law|lawyer/i.test(value)) return "Legal";
   if (/personal|life|admin/i.test(value)) return "Personal";
-  return "HydroFire";
+  return "Personal";
 }
 
 function normalizePriority(raw: unknown) {

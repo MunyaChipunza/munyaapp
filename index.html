@@ -23,7 +23,7 @@
   --today:#DC2626;--tom:#D97706;--up:#6366F1;--done:#059669;
   --kalm:#B45309;
   --t1:#1A1040;--t2:#5B4E8C;--t3:#A99ED4;
-  --hydrofire:#3B82F6;--personal:#8B5CF6;--family:#EC4899;
+  --personal:#8B5CF6;--family:#EC4899;
   --zimbabwe:#F97316;--career:#059669;--legal:#64748B;
   --header-h:58px;--mobile-nav-h:78px;--app-height:100vh;
   --radius:12px;--rsm:8px;--shadow:0 4px 20px rgba(99,102,241,.15);
@@ -541,14 +541,8 @@ input[type=date].min::-webkit-calendar-picker-indicator{
   <button class="filter-pill active" data-list="all">
     <span class="filter-dot" style="background:#6366F1"></span>All
   </button>
-  <button class="filter-pill" data-list="HydroFire">
-    <span class="filter-dot" style="background:#3B82F6"></span>HydroFire
-  </button>
   <button class="filter-pill" data-list="Personal">
     <span class="filter-dot" style="background:#8B5CF6"></span>Personal
-  </button>
-  <button class="filter-pill" data-list="Calendar">
-    <span class="filter-dot" style="background:#0EA5E9"></span>Calendar
   </button>
   <button class="filter-pill" data-list="KALM">
     <span class="filter-dot" style="background:#B45309"></span>KALM
@@ -567,10 +561,10 @@ input[type=date].min::-webkit-calendar-picker-indicator{
   </button>
 </div>
 
-<!-- Google Calendar bar -->
+<!-- Google sync bar -->
 <div id="gcal-bar" class="gcal-bar">
-  <span>📅 Connect Google to sync tasks across devices and auto-import shared calendars</span>
-  <button class="gcal-btn" id="gcal-connect-btn" onclick="signInGcal()">Connect Google</button>
+  <span>Sync tasks across devices with Google Drive app data. Calendar imports are disabled.</span>
+  <button class="gcal-btn" id="gcal-connect-btn" onclick="signInGcal()">Connect Sync</button>
 </div>
 
 <!-- Board -->
@@ -670,9 +664,7 @@ input[type=date].min::-webkit-calendar-picker-indicator{
       <div class="mf">
         <label class="mlbl">List</label>
         <select class="msel" id="f-list">
-          <option value="HydroFire">HydroFire</option>
           <option value="Personal">Personal</option>
-          <option value="Calendar">Calendar</option>
           <option value="KALM">KALM</option>
           <option value="Family">Family</option>
           <option value="Zimbabwe">Zimbabwe</option>
@@ -720,9 +712,7 @@ input[type=date].min::-webkit-calendar-picker-indicator{
 // ╚══════════════════════════════════════════════════════╝
 
 const LISTS = {
-  HydroFire: '#3B82F6',
   Personal:  '#8B5CF6',
-  Calendar:  '#0EA5E9',
   KALM:      '#B45309',
   Family:    '#EC4899',
   Zimbabwe:  '#F97316',
@@ -733,30 +723,15 @@ const LISTS = {
 // ── Seed data from Notion ─────────────────────────────
 const SEED = [
   // Overdue → auto appears in TODAY
-  {id:uid(),title:'Repurpose Selene glass',list:'HydroFire',dueDate:'2026-05-06',priority:'high',  done:false,notes:''},
-  {id:uid(),title:'Amron contract',         list:'HydroFire',dueDate:'2026-05-08',priority:'high',  done:false,notes:''},
-  {id:uid(),title:'Yasin Luna follow up',   list:'HydroFire',dueDate:'2026-05-08',priority:'high',  done:false,notes:''},
   {id:uid(),title:'Scholarships',           list:'Personal', dueDate:'2026-05-09',priority:'medium',done:false,notes:''},
   {id:uid(),title:'Bin lady',               list:'Personal', dueDate:'2026-05-09',priority:'medium',done:false,notes:''},
   // Today — May 11
   {id:uid(),title:"Craig's bday",           list:'Personal', dueDate:'2026-05-11',priority:'medium',done:false,notes:''},
-  {id:uid(),title:'greg gaia glass',        list:'HydroFire',dueDate:'2026-05-11',priority:'low',   done:false,notes:''},
-  {id:uid(),title:'ruari',                  list:'HydroFire',dueDate:'2026-05-11',priority:'low',   done:false,notes:''},
-  {id:uid(),title:'Andre selene replacement for SO 92392',list:'HydroFire',dueDate:'2026-05-11',priority:'low',done:false,notes:''},
-  {id:uid(),title:'Xero Expenses',          list:'HydroFire',dueDate:'2026-05-11',priority:'low',   done:false,notes:''},
-  {id:uid(),title:'5S Training — Week 6: Sustain (Shitsuke)',list:'HydroFire',dueDate:'2026-05-11',priority:'low',done:false,notes:''},
   // Tomorrow — May 12
   {id:uid(),title:'tapera follow up',       list:'Personal', dueDate:'2026-05-12',priority:'low',   done:false,notes:''},
   // Upcoming
   {id:uid(),title:'PR application — follow up on status',list:'Legal',dueDate:'2026-05-14',priority:'low',done:false,notes:''},
-  {id:uid(),title:'Top up TK ads',          list:'HydroFire',dueDate:'2026-05-15',priority:'low',   done:false,notes:''},
   {id:uid(),title:'check unisa application',list:'Personal', dueDate:'2026-05-15',priority:'low',   done:false,notes:''},
-  {id:uid(),title:'5S Training — Week 7: First Floor Audit',list:'HydroFire',dueDate:'2026-05-18',priority:'low',done:false,notes:''},
-  {id:uid(),title:'5S Training — Week 8: The 8 Wastes of Lean',list:'HydroFire',dueDate:'2026-05-25',priority:'low',done:false,notes:''},
-  {id:uid(),title:'5S Training — Week 9: Visual Controls',list:'HydroFire',dueDate:'2026-06-01',priority:'low',done:false,notes:''},
-  {id:uid(),title:'5S Training — Week 10: Area Ownership',list:'HydroFire',dueDate:'2026-06-08',priority:'low',done:false,notes:''},
-  {id:uid(),title:'5S Training — Week 11: Problem Solving (5 Whys)',list:'HydroFire',dueDate:'2026-06-15',priority:'low',done:false,notes:''},
-  {id:uid(),title:'5S Training — Week 12: Final Audit & Graduation',list:'HydroFire',dueDate:'2026-06-22',priority:'low',done:false,notes:''},
   {id:uid(),title:'Dentist appointment',    list:'Personal', dueDate:'2026-07-18',priority:'low',   done:false,notes:''},
   {id:uid(),title:'Dissertation — submit once finances allow',list:'Personal',dueDate:'2026-09-01',priority:'low',done:false,notes:''},
   {id:uid(),title:'2026 Resolution: Sacred Marriage — healthy, peaceful, sacred. Not words, action.',list:'Family',dueDate:'2026-12-31',priority:'low',done:false,notes:''},
@@ -795,6 +770,29 @@ function assignKalmTasks(list){
       task.updatedAt=nowIso();
       changed=true;
     }
+  });
+  return changed;
+}
+
+function isRetiredHydrofireOrCalendarTask(task){
+  if(!task) return false;
+  return task.list==='HydroFire' ||
+    task.list==='Calendar' ||
+    task.source==='gcal' ||
+    /^gcal:/i.test(String(task.sourceKey||'')) ||
+    Boolean(task.sourceCalendarId || task.sourceCalendarName || task.sourceEventId);
+}
+
+function retireHydrofireAndCalendarTasks(list){
+  const now=nowIso();
+  let changed=false;
+  list.forEach(task=>{
+    if(!task || !isRetiredHydrofireOrCalendarTask(task) || task.deletedAt) return;
+    task.deletedAt=now;
+    task.updatedAt=now;
+    task.done=false;
+    delete task.doneAt;
+    changed=true;
   });
   return changed;
 }
@@ -856,7 +854,9 @@ function normalizeTask(task){
 }
 
 function normalizeTaskSet(list){
-  return Array.isArray(list) ? list.map(normalizeTask).filter(Boolean) : [];
+  const normalized=Array.isArray(list) ? list.map(normalizeTask).filter(Boolean) : [];
+  retireHydrofireAndCalendarTasks(normalized);
+  return normalized;
 }
 
 function addMenReadingPlan(){
@@ -922,6 +922,7 @@ function mergeTaskSets(localList,remoteList){
     if(shouldAdoptTask(merged[index],candidate)) merged[index]=candidate;
   });
   assignKalmTasks(merged);
+  retireHydrofireAndCalendarTasks(merged);
   return merged;
 }
 
@@ -1379,7 +1380,7 @@ function openAdd(preset){
   // Pre-fill date based on column
   const dates={today:todayStr(),tomorrow:tomorrowStr(),upcoming:addDays(2)};
   $('f-due').value=preset&&dates[preset]?dates[preset]:'';
-  $('f-list').value=preset==='kalm'?'KALM':filter!=='all'?filter:'HydroFire';
+  $('f-list').value=preset==='kalm'?'KALM':filter!=='all'?filter:'Personal';
   $('overlay').classList.remove('hidden');
   $('f-title').focus();
 }
@@ -1414,8 +1415,7 @@ function saveTask(){
     const target=tasks.find(t=>t.id===editId);
     if(!target || isDeletedTask(target)) return;
     Object.assign(target,data,{updatedAt:now});
-    if(target.source==='gcal') target.list='Calendar';
-    else if(isKalmTask(target)) target.list='KALM';
+    if(isKalmTask(target)) target.list='KALM';
     toast('Task updated ✓');
   }else{
     const task={id:uid(),...data,done:false,createdAt:now,updatedAt:now};
@@ -1538,8 +1538,7 @@ function initDragDrop(){
       else if(colId==='body-tomorrow'){task.done=false;delete task.doneAt;task.dueDate=tomorrowStr();}
       else if(colId==='body-upcoming'){task.done=false;delete task.doneAt;if(!task.dueDate||task.dueDate<=tomorrowStr())task.dueDate=addDays(2);}
       else if(colId==='body-done'){task.done=true;task.doneAt=now;}
-      if(task.source==='gcal') task.list='Calendar';
-      else if(isKalmTask(task)) task.list='KALM';
+      if(isKalmTask(task)) task.list='KALM';
       task.updatedAt = now;
       save();render();toast('Task moved ✓');
     });
@@ -1547,9 +1546,9 @@ function initDragDrop(){
 }
 
 
-// ── Google Calendar ───────────────────────────────────
+// ── Google Drive task sync ────────────────────────────
 const GCAL_CLIENT_ID = '257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com';
-const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.appdata';
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const SYNC_FILE_NAME = 'munyaapp-tasks.json';
 const GCAL_TOKEN_KEY = 'gcal_token';
 const GCAL_TOKEN_EXPIRES_KEY = 'gcal_token_expires_at';
@@ -1585,10 +1584,9 @@ function initGcal(){
   $('gcal-bar').classList.add('hidden');
   scheduleGoogleTokenRefresh();
   if(!_syncTimer) _syncTimer=setInterval(()=>syncAll().catch(()=>{}),15000);
-  if(!_calendarTimer) _calendarTimer=setInterval(fetchGcalEvents,3600000);
   if(hasLocalTasksDirty()) schedulePush(0);
   scheduleTaskBridgePush(1000);
-  syncAll({includeCalendar:true}).catch(()=>{});
+  syncAll().catch(()=>{});
 }
 
 let _tokenClient = null;
@@ -2021,152 +2019,7 @@ function calendarTimeFromEvent(ev){
 }
 
 async function fetchGcalEvents(){
-  if(!await ensureGoogleAccess()) return;
-  try{
-    const now = new Date(Date.now()-30*86400000).toISOString();
-    const end = new Date(Date.now()+365*86400000).toISOString();
-    const calendars = [];
-    let pageToken = '';
-    do{
-      const params = new URLSearchParams({
-        showDeleted: 'false',
-        showHidden: 'true',
-        maxResults: '250',
-      });
-      if(pageToken) params.set('pageToken', pageToken);
-      const calRes = await fetch(`https://www.googleapis.com/calendar/v3/users/me/calendarList?${params.toString()}`,
-        {headers:authHeaders()});
-      if(calRes.status===401 || calRes.status===403){clearGoogleAuth();setSyncUI('error');return;}
-      if(!calRes.ok) break;
-      const calList = await calRes.json();
-      calendars.push(...(calList.items||[]).filter(c=>c.deleted!==true));
-      pageToken = calList.nextPageToken || '';
-    }while(pageToken);
-    let imported=0;
-    let updated=0;
-    for(const cal of calendars){
-      try{
-        let eventPageToken = '';
-        do{
-          const params = new URLSearchParams({
-            timeMin: now,
-            timeMax: end,
-            singleEvents: 'true',
-            orderBy: 'startTime',
-            showDeleted: 'false',
-            maxResults: '2500',
-          });
-          if(eventPageToken) params.set('pageToken', eventPageToken);
-          const r=await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${params.toString()}`,{headers:authHeaders()});
-          if(r.status===401 || r.status===403){clearGoogleAuth();setSyncUI('error');return;}
-          if(!r.ok) break;
-          const d=await r.json();
-          (d.items||[]).forEach(ev=>{
-            const timeInfo=calendarTimeFromEvent(ev);
-            const start=timeInfo.date;
-            if(!start||ev.status==='cancelled') return;
-            const title=ev.summary||'(No title)';
-            const sourceKey=`gcal:${cal.id}:${ev.id}`;
-            const eventLinks=calendarLinksFromEvent(ev);
-            const eventNotes=calendarNotesFromEvent(ev);
-            const exists=tasks.find(t=>t.sourceKey===sourceKey || t.notes===sourceKey);
-            if(exists){
-              if(isDeletedTask(exists)) return;
-              let changed=false;
-              const calendarName=cal.summary||cal.id;
-              const wasCalendarAligned=exists.sourceStartDate
-                ? !exists.dueDate || exists.dueDate===exists.sourceStartDate
-                : exists.dueDate===start;
-              if(exists.title!==title){exists.title=title;changed=true;}
-              if(exists.list!=='Calendar'){exists.list='Calendar';changed=true;}
-              if(!exists.priority){exists.priority='low';changed=true;}
-              if(exists.source!=='gcal'){exists.source='gcal';changed=true;}
-              if(exists.sourceKey!==sourceKey){exists.sourceKey=sourceKey;changed=true;}
-              if(exists.sourceEventId!==ev.id){exists.sourceEventId=ev.id;changed=true;}
-              if(exists.sourceCalendarId!==cal.id){exists.sourceCalendarId=cal.id;changed=true;}
-              if(exists.sourceCalendarName!==calendarName){exists.sourceCalendarName=calendarName;changed=true;}
-              if(exists.sourceStartTime!==timeInfo.startTime){
-                if(timeInfo.startTime) exists.sourceStartTime=timeInfo.startTime;
-                else delete exists.sourceStartTime;
-                changed=true;
-              }
-              if(exists.sourceEndTime!==timeInfo.endTime){
-                if(timeInfo.endTime) exists.sourceEndTime=timeInfo.endTime;
-                else delete exists.sourceEndTime;
-                changed=true;
-              }
-              if(exists.sourceStartAt!==timeInfo.startAt){
-                if(timeInfo.startAt) exists.sourceStartAt=timeInfo.startAt;
-                else delete exists.sourceStartAt;
-                changed=true;
-              }
-              if(exists.sourceEndAt!==timeInfo.endAt){
-                if(timeInfo.endAt) exists.sourceEndAt=timeInfo.endAt;
-                else delete exists.sourceEndAt;
-                changed=true;
-              }
-              if(Boolean(exists.sourceAllDay)!==Boolean(timeInfo.allDay)){
-                exists.sourceAllDay=Boolean(timeInfo.allDay);
-                changed=true;
-              }
-              if(!sameLinks(exists.links,eventLinks)){
-                if(eventLinks.length) exists.links=eventLinks;
-                else delete exists.links;
-                changed=true;
-              }
-              if(eventNotes && (!exists.notes || exists.notes===exists.sourceNotes)){
-                if(exists.notes!==eventNotes){exists.notes=eventNotes;changed=true;}
-                exists.sourceNotes=eventNotes;
-              }
-              if(exists.sourceStartDate!==start){
-                if(wasCalendarAligned && exists.dueDate!==start){exists.dueDate=start;changed=true;}
-                exists.sourceStartDate=start;
-                changed=true;
-              }
-              if(changed){
-                exists.updatedAt=nowIso();
-                updated++;
-              }
-            }else{
-              tasks.push({
-                id:uid(),
-                title,
-                list:'Calendar',
-                dueDate:start,
-                priority:'low',
-                done:false,
-                notes:eventNotes,
-                createdAt:nowIso(),
-                updatedAt:nowIso(),
-                source:'gcal',
-                sourceKey,
-                sourceEventId:ev.id,
-                sourceCalendarId:cal.id,
-                sourceCalendarName:cal.summary||cal.id,
-                sourceStartDate:start,
-                sourceStartTime:timeInfo.startTime,
-                sourceEndTime:timeInfo.endTime,
-                sourceStartAt:timeInfo.startAt,
-                sourceEndAt:timeInfo.endAt,
-                sourceAllDay:Boolean(timeInfo.allDay),
-                sourceNotes:eventNotes,
-                links:eventLinks
-              });
-              imported++;
-            }
-          });
-          eventPageToken = d.nextPageToken || '';
-        }while(eventPageToken);
-      }catch(e){}
-    }
-    if(imported>0 || updated>0){
-      save();
-      render();
-      toast(`📅 ${imported} imported${updated?`, ${updated} updated`:''}`);
-    }else{
-      toast('📅 Calendar up to date');
-    }
-  }catch(e){console.error('GCal:',e);setSyncUI('error');}
+  return false;
 }
 
 // ── Auto Sync (Google Drive appData) ─────────────────────────
@@ -2267,7 +2120,6 @@ async function syncAll(options={}){
   await pullTaskBridgeSnapshot();
   await syncPull();
   await pullTaskIntake();
-  if(options.includeCalendar) await fetchGcalEvents();
   await pushTaskBridge();
   return true;
 }
@@ -2276,11 +2128,16 @@ async function manualSync(){
   if(!await ensureGoogleAccess(true)) return;
   clearTimeout(_pushTimer);
   _pushTimer = null;
-  await syncAll({includeCalendar:true});
+  await syncAll();
 }
 
 // ── Init ─────────────────────────────────────────────────
-if(assignKalmTasks(tasks)) localStorage.setItem('munyaapp',JSON.stringify(tasks));
+const _startupKalmChanged = assignKalmTasks(tasks);
+const _startupRetiredChanged = retireHydrofireAndCalendarTasks(tasks);
+if(_startupKalmChanged || _startupRetiredChanged){
+  localStorage.setItem('munyaapp',JSON.stringify(tasks));
+  if(_startupRetiredChanged) markLocalTasksDirty();
+}
 addMenReadingPlan();
 initDragDrop();
 initMobileNavigation();
