@@ -544,6 +544,9 @@ input[type=date].min::-webkit-calendar-picker-indicator{
   <button class="filter-pill" data-list="Personal">
     <span class="filter-dot" style="background:#8B5CF6"></span>Personal
   </button>
+  <button class="filter-pill" data-list="Calendar">
+    <span class="filter-dot" style="background:#0EA5E9"></span>Calendar
+  </button>
   <button class="filter-pill" data-list="KALM">
     <span class="filter-dot" style="background:#B45309"></span>KALM
   </button>
@@ -563,7 +566,7 @@ input[type=date].min::-webkit-calendar-picker-indicator{
 
 <!-- Google sync bar -->
 <div id="gcal-bar" class="gcal-bar">
-  <span>Sync tasks across devices with Google Drive app data. Calendar imports are disabled.</span>
+  <span>Sync tasks across devices and import the Chipunza personal calendar. HydroFire calendars are disabled.</span>
   <button class="gcal-btn" id="gcal-connect-btn" onclick="signInGcal()">Connect Sync</button>
 </div>
 
@@ -665,6 +668,7 @@ input[type=date].min::-webkit-calendar-picker-indicator{
         <label class="mlbl">List</label>
         <select class="msel" id="f-list">
           <option value="Personal">Personal</option>
+          <option value="Calendar">Calendar</option>
           <option value="KALM">KALM</option>
           <option value="Family">Family</option>
           <option value="Zimbabwe">Zimbabwe</option>
@@ -713,6 +717,7 @@ input[type=date].min::-webkit-calendar-picker-indicator{
 
 const LISTS = {
   Personal:  '#8B5CF6',
+  Calendar:  '#0EA5E9',
   KALM:      '#B45309',
   Family:    '#EC4899',
   Zimbabwe:  '#F97316',
@@ -776,11 +781,16 @@ function assignKalmTasks(list){
 
 function isRetiredHydrofireOrCalendarTask(task){
   if(!task) return false;
+  const calendarIdentity=[
+    task.sourceCalendarId,
+    task.sourceCalendarName,
+    task.sourceKey,
+    task.calendarId,
+    task.calendarName
+  ].map(value=>String(value||'').toLowerCase()).join(' ');
   return task.list==='HydroFire' ||
-    task.list==='Calendar' ||
-    task.source==='gcal' ||
-    /^gcal:/i.test(String(task.sourceKey||'')) ||
-    Boolean(task.sourceCalendarId || task.sourceCalendarName || task.sourceEventId);
+    calendarIdentity.includes('hydrofire') ||
+    calendarIdentity.includes('engineering@hydrofire.co.za');
 }
 
 function retireHydrofireAndCalendarTasks(list){
@@ -1487,7 +1497,25 @@ $('btn-install-x').addEventListener('click',()=>$('install-bar').classList.add('
 
 // ── Service Worker ────────────────────────────────────
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW:',e));
+  let swRefreshing=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(swRefreshing) return;
+    swRefreshing=true;
+    window.location.reload();
+  });
+  navigator.serviceWorker.register('/sw.js').then(reg=>{
+    reg.update().catch(()=>{});
+    if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+    reg.addEventListener('updatefound',()=>{
+      const worker=reg.installing;
+      if(!worker) return;
+      worker.addEventListener('statechange',()=>{
+        if(worker.state==='installed' && navigator.serviceWorker.controller){
+          worker.postMessage({type:'SKIP_WAITING'});
+        }
+      });
+    });
+  }).catch(e=>console.warn('SW:',e));
 }
 
 
@@ -1546,9 +1574,9 @@ function initDragDrop(){
 }
 
 
-// ── Google Drive task sync ────────────────────────────
+// ── Google Drive task sync + personal calendar import ─
 const GCAL_CLIENT_ID = '257963331893-p6dfkmmu8lsfqero0ct0nfanf9i3dgbj.apps.googleusercontent.com';
-const GCAL_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.appdata';
 const SYNC_FILE_NAME = 'munyaapp-tasks.json';
 const GCAL_TOKEN_KEY = 'gcal_token';
 const GCAL_TOKEN_EXPIRES_KEY = 'gcal_token_expires_at';
@@ -1584,9 +1612,10 @@ function initGcal(){
   $('gcal-bar').classList.add('hidden');
   scheduleGoogleTokenRefresh();
   if(!_syncTimer) _syncTimer=setInterval(()=>syncAll().catch(()=>{}),15000);
+  if(!_calendarTimer) _calendarTimer=setInterval(fetchGcalEvents,3600000);
   if(hasLocalTasksDirty()) schedulePush(0);
   scheduleTaskBridgePush(1000);
-  syncAll().catch(()=>{});
+  syncAll({includeCalendar:true}).catch(()=>{});
 }
 
 let _tokenClient = null;
@@ -2018,8 +2047,174 @@ function calendarTimeFromEvent(ev){
   };
 }
 
+function isAllowedCalendarForImport(cal){
+  const identity=[
+    cal?.id,
+    cal?.summary,
+    cal?.summaryOverride,
+    cal?.description
+  ].map(value=>String(value||'').toLowerCase()).join(' ');
+  if(identity.includes('hydrofire') || identity.includes('engineering@hydrofire.co.za')) return false;
+  if(cal?.primary) return true;
+  return identity.includes('chipunzamunya@gmail.com') ||
+    identity.includes('munyaradzi chipunza') ||
+    identity.includes('munya chipunza');
+}
+
 async function fetchGcalEvents(){
-  return false;
+  if(!await ensureGoogleAccess()) return;
+  try{
+    const now = new Date(Date.now()-30*86400000).toISOString();
+    const end = new Date(Date.now()+365*86400000).toISOString();
+    const calendars = [];
+    let pageToken = '';
+    do{
+      const params = new URLSearchParams({
+        showDeleted: 'false',
+        showHidden: 'false',
+        maxResults: '250',
+      });
+      if(pageToken) params.set('pageToken', pageToken);
+      const calRes = await fetch(`https://www.googleapis.com/calendar/v3/users/me/calendarList?${params.toString()}`,
+        {headers:authHeaders()});
+      if(calRes.status===401 || calRes.status===403){clearGoogleAuth();setSyncUI('error');return;}
+      if(!calRes.ok) break;
+      const calList = await calRes.json();
+      calendars.push(...(calList.items||[]).filter(c=>c.deleted!==true && isAllowedCalendarForImport(c)));
+      pageToken = calList.nextPageToken || '';
+    }while(pageToken);
+    let imported=0;
+    let updated=0;
+    for(const cal of calendars){
+      try{
+        let eventPageToken = '';
+        do{
+          const params = new URLSearchParams({
+            timeMin: now,
+            timeMax: end,
+            singleEvents: 'true',
+            orderBy: 'startTime',
+            showDeleted: 'false',
+            maxResults: '2500',
+          });
+          if(eventPageToken) params.set('pageToken', eventPageToken);
+          const r=await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${params.toString()}`,{headers:authHeaders()});
+          if(r.status===401 || r.status===403){clearGoogleAuth();setSyncUI('error');return;}
+          if(!r.ok) break;
+          const d=await r.json();
+          (d.items||[]).forEach(ev=>{
+            const timeInfo=calendarTimeFromEvent(ev);
+            const start=timeInfo.date;
+            if(!start||ev.status==='cancelled') return;
+            const title=ev.summary||'(No title)';
+            const sourceKey=`gcal:${cal.id}:${ev.id}`;
+            const eventLinks=calendarLinksFromEvent(ev);
+            const eventNotes=calendarNotesFromEvent(ev);
+            const exists=tasks.find(t=>t.sourceKey===sourceKey || t.notes===sourceKey);
+            if(exists){
+              if(isRetiredHydrofireOrCalendarTask(exists)) return;
+              let changed=false;
+              if(isDeletedTask(exists)){
+                delete exists.deletedAt;
+                delete exists.doneAt;
+                exists.done=false;
+                changed=true;
+              }
+              const calendarName=cal.summary||cal.id;
+              const wasCalendarAligned=exists.sourceStartDate
+                ? !exists.dueDate || exists.dueDate===exists.sourceStartDate
+                : exists.dueDate===start;
+              if(exists.title!==title){exists.title=title;changed=true;}
+              if(exists.list!=='Calendar'){exists.list='Calendar';changed=true;}
+              if(!exists.priority){exists.priority='low';changed=true;}
+              if(exists.source!=='gcal'){exists.source='gcal';changed=true;}
+              if(exists.sourceKey!==sourceKey){exists.sourceKey=sourceKey;changed=true;}
+              if(exists.sourceEventId!==ev.id){exists.sourceEventId=ev.id;changed=true;}
+              if(exists.sourceCalendarId!==cal.id){exists.sourceCalendarId=cal.id;changed=true;}
+              if(exists.sourceCalendarName!==calendarName){exists.sourceCalendarName=calendarName;changed=true;}
+              if(exists.sourceStartTime!==timeInfo.startTime){
+                if(timeInfo.startTime) exists.sourceStartTime=timeInfo.startTime;
+                else delete exists.sourceStartTime;
+                changed=true;
+              }
+              if(exists.sourceEndTime!==timeInfo.endTime){
+                if(timeInfo.endTime) exists.sourceEndTime=timeInfo.endTime;
+                else delete exists.sourceEndTime;
+                changed=true;
+              }
+              if(exists.sourceStartAt!==timeInfo.startAt){
+                if(timeInfo.startAt) exists.sourceStartAt=timeInfo.startAt;
+                else delete exists.sourceStartAt;
+                changed=true;
+              }
+              if(exists.sourceEndAt!==timeInfo.endAt){
+                if(timeInfo.endAt) exists.sourceEndAt=timeInfo.endAt;
+                else delete exists.sourceEndAt;
+                changed=true;
+              }
+              if(Boolean(exists.sourceAllDay)!==Boolean(timeInfo.allDay)){
+                exists.sourceAllDay=Boolean(timeInfo.allDay);
+                changed=true;
+              }
+              if(!sameLinks(exists.links,eventLinks)){
+                if(eventLinks.length) exists.links=eventLinks;
+                else delete exists.links;
+                changed=true;
+              }
+              if(eventNotes && (!exists.notes || exists.notes===exists.sourceNotes)){
+                if(exists.notes!==eventNotes){exists.notes=eventNotes;changed=true;}
+                exists.sourceNotes=eventNotes;
+              }
+              if(exists.sourceStartDate!==start){
+                if(wasCalendarAligned && exists.dueDate!==start){exists.dueDate=start;changed=true;}
+                exists.sourceStartDate=start;
+                changed=true;
+              }
+              if(changed){
+                exists.updatedAt=nowIso();
+                updated++;
+              }
+            }else{
+              tasks.push({
+                id:uid(),
+                title,
+                list:'Calendar',
+                dueDate:start,
+                priority:'low',
+                done:false,
+                notes:eventNotes,
+                createdAt:nowIso(),
+                updatedAt:nowIso(),
+                source:'gcal',
+                sourceKey,
+                sourceEventId:ev.id,
+                sourceCalendarId:cal.id,
+                sourceCalendarName:cal.summary||cal.id,
+                sourceStartDate:start,
+                sourceStartTime:timeInfo.startTime,
+                sourceEndTime:timeInfo.endTime,
+                sourceStartAt:timeInfo.startAt,
+                sourceEndAt:timeInfo.endAt,
+                sourceAllDay:Boolean(timeInfo.allDay),
+                sourceNotes:eventNotes,
+                links:eventLinks
+              });
+              imported++;
+            }
+          });
+          eventPageToken = d.nextPageToken || '';
+        }while(eventPageToken);
+      }catch(e){}
+    }
+    retireHydrofireAndCalendarTasks(tasks);
+    if(imported>0 || updated>0){
+      save();
+      render();
+      toast(`Calendar ${imported} imported${updated?`, ${updated} updated`:''}`);
+    }else{
+      toast('Calendar up to date');
+    }
+  }catch(e){console.error('GCal:',e);setSyncUI('error');}
 }
 
 // ── Auto Sync (Google Drive appData) ─────────────────────────
@@ -2120,6 +2315,7 @@ async function syncAll(options={}){
   await pullTaskBridgeSnapshot();
   await syncPull();
   await pullTaskIntake();
+  if(options.includeCalendar) await fetchGcalEvents();
   await pushTaskBridge();
   return true;
 }
@@ -2128,7 +2324,7 @@ async function manualSync(){
   if(!await ensureGoogleAccess(true)) return;
   clearTimeout(_pushTimer);
   _pushTimer = null;
-  await syncAll();
+  await syncAll({includeCalendar:true});
 }
 
 // ── Init ─────────────────────────────────────────────────

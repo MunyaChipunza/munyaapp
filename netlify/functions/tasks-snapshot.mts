@@ -441,7 +441,7 @@ function notionBlocksForSnapshot(snapshot: TaskSnapshot): NotionBlock[] {
     `Source: ${snapshot.source}`,
     `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records`,
     "This page is automatically overwritten by the Munya App Netlify task bridge.",
-    "For Claude, ChatGPT, and other AI assistants: use the brief and reference below. Retired HydroFire tasks and Google Calendar imports are intentionally omitted.",
+    "For Claude, ChatGPT, and other AI assistants: use the brief and reference below. Retired HydroFire tasks and HydroFire calendar records are intentionally omitted.",
   ].join("\n");
 
   return [
@@ -476,7 +476,7 @@ function renderClaudeBrief(snapshot: TaskSnapshot) {
     "## AI Brief - Read This First",
     `Snapshot date: ${today} (${TIME_ZONE})`,
     `Snapshot updated: ${snapshot.updatedAt}`,
-    "Claude, ChatGPT, and other AI assistants should use this brief for immediate planning. HydroFire tasks and Google Calendar imports have been retired.",
+    "Claude, ChatGPT, and other AI assistants should use this brief for immediate planning. HydroFire tasks and HydroFire calendar records have been retired.",
     `Counts: ${snapshot.counts.active} active, ${snapshot.counts.done} done, ${snapshot.counts.deleted} deleted tombstones, ${snapshot.counts.total} total records.`,
     "",
     ...renderBriefDate("Today", today, todayTasks),
@@ -526,10 +526,14 @@ function isCalendarTask(task: TaskSnapshotItem) {
 }
 
 function isRetiredHydrofireOrCalendarTask(task: TaskSnapshotItem) {
+  const calendarIdentity = [
+    task.sourceCalendarId,
+    task.sourceCalendarName,
+    task.sourceKey,
+  ].map((value) => (value || "").toLowerCase()).join(" ");
   return task.list.toLowerCase() === "hydrofire" ||
-    isCalendarTask(task) ||
-    /^gcal:/i.test(task.sourceKey || "") ||
-    Boolean(task.sourceCalendarId || task.sourceEventId);
+    calendarIdentity.includes("hydrofire") ||
+    calendarIdentity.includes("engineering@hydrofire.co.za");
 }
 
 function renderClaudeReference(snapshot: TaskSnapshot) {
