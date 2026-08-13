@@ -790,7 +790,25 @@ function isRetiredHydrofireOrCalendarTask(task){
   ].map(value=>String(value||'').toLowerCase()).join(' ');
   return task.list==='HydroFire' ||
     calendarIdentity.includes('hydrofire') ||
-    calendarIdentity.includes('engineering@hydrofire.co.za');
+    calendarIdentity.includes('engineering@hydrofire.co.za') ||
+    isPastImportedCalendarTask(task);
+}
+
+function isImportedCalendarTask(task){
+  return task?.source==='gcal' ||
+    /^gcal:/i.test(String(task?.sourceKey||'')) ||
+    Boolean(task?.sourceEventId || task?.sourceCalendarId || task?.sourceCalendarName);
+}
+
+function isPastImportedCalendarTask(task){
+  if(!isImportedCalendarTask(task)) return false;
+  const endAt=String(task.sourceEndAt||'');
+  if(endAt){
+    const endTime=Date.parse(endAt);
+    if(!Number.isNaN(endTime)) return endTime <= Date.now();
+  }
+  const due=String(task.dueDate||task.sourceStartDate||'');
+  return Boolean(due && due < todayStr());
 }
 
 function retireHydrofireAndCalendarTasks(list){
@@ -2047,6 +2065,20 @@ function calendarTimeFromEvent(ev){
   };
 }
 
+function calendarTimeHasPassed(timeInfo){
+  if(!timeInfo?.date) return true;
+  if(timeInfo.allDay) return timeInfo.date < todayStr();
+  if(timeInfo.endAt){
+    const endTime=Date.parse(timeInfo.endAt);
+    if(!Number.isNaN(endTime)) return endTime <= Date.now();
+  }
+  if(timeInfo.startAt){
+    const startTime=Date.parse(timeInfo.startAt);
+    if(!Number.isNaN(startTime)) return startTime <= Date.now();
+  }
+  return timeInfo.date < todayStr();
+}
+
 function isAllowedCalendarForImport(cal){
   const identity=[
     cal?.id,
@@ -2064,7 +2096,7 @@ function isAllowedCalendarForImport(cal){
 async function fetchGcalEvents(){
   if(!await ensureGoogleAccess()) return;
   try{
-    const now = new Date(Date.now()-30*86400000).toISOString();
+    const now = new Date().toISOString();
     const end = new Date(Date.now()+365*86400000).toISOString();
     const calendars = [];
     let pageToken = '';
@@ -2106,6 +2138,7 @@ async function fetchGcalEvents(){
             const timeInfo=calendarTimeFromEvent(ev);
             const start=timeInfo.date;
             if(!start||ev.status==='cancelled') return;
+            if(calendarTimeHasPassed(timeInfo)) return;
             const title=ev.summary||'(No title)';
             const sourceKey=`gcal:${cal.id}:${ev.id}`;
             const eventLinks=calendarLinksFromEvent(ev);

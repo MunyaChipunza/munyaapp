@@ -533,7 +533,18 @@ function isRetiredHydrofireOrCalendarTask(task: TaskSnapshotItem) {
   ].map((value) => (value || "").toLowerCase()).join(" ");
   return task.list.toLowerCase() === "hydrofire" ||
     calendarIdentity.includes("hydrofire") ||
-    calendarIdentity.includes("engineering@hydrofire.co.za");
+    calendarIdentity.includes("engineering@hydrofire.co.za") ||
+    isPastImportedCalendarTask(task);
+}
+
+function isPastImportedCalendarTask(task: TaskSnapshotItem) {
+  if (!isCalendarTask(task)) return false;
+  if (task.sourceEndAt) {
+    const endTime = Date.parse(task.sourceEndAt);
+    if (!Number.isNaN(endTime)) return endTime <= Date.now();
+  }
+  const due = task.dueDate || task.sourceStartDate || "";
+  return Boolean(due && due < todayInZone());
 }
 
 function renderClaudeReference(snapshot: TaskSnapshot) {
