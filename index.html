@@ -1600,6 +1600,7 @@ const GCAL_TOKEN_KEY = 'gcal_token';
 const GCAL_TOKEN_EXPIRES_KEY = 'gcal_token_expires_at';
 const GCAL_SCOPE_KEY = 'gcal_scope';
 const GCAL_CONNECTED_KEY = 'gcal_connected';
+const GCAL_LOGIN_HINT = 'chipunzamunya@gmail.com';
 const TASK_DIRTY_KEY = 'munyaapp_sync_dirty_at';
 let _gcalToken = localStorage.getItem(GCAL_TOKEN_KEY) || '';
 let _gcalTokenExpiresAt = Number(localStorage.getItem(GCAL_TOKEN_EXPIRES_KEY) || 0);
@@ -1675,6 +1676,7 @@ function ensureTokenClient(){
     client_id: GCAL_CLIENT_ID,
     scope: GCAL_SCOPE,
     include_granted_scopes: true,
+    login_hint: GCAL_LOGIN_HINT,
     callback: (resp)=>{
       clearTimeout(_tokenRequestTimeout);
       const resolve = _pendingTokenResolve;
@@ -1712,7 +1714,7 @@ function requestGoogleToken(promptMode=''){
       _pendingTokenPrompt = '';
       resolve(false);
     }, 15000);
-    client.requestAccessToken({prompt:promptMode});
+    client.requestAccessToken({prompt:promptMode,login_hint:GCAL_LOGIN_HINT});
   });
   return _pendingTokenRequest;
 }
@@ -1723,7 +1725,7 @@ function attemptSilentGoogleAuth(){
 
 async function signInGcal(){
   if(typeof google === 'undefined'){toast('Loading Google... try again in 2s');return false;}
-  const ok = await requestGoogleToken('select_account');
+  const ok = await requestGoogleToken('');
   if(!ok) toast('Google reconnect failed. Try again once.');
   return ok;
 }
