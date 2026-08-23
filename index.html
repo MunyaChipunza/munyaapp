@@ -789,6 +789,7 @@ function isRetiredHydrofireOrCalendarTask(task){
     task.calendarName
   ].map(value=>String(value||'').toLowerCase()).join(' ');
   return task.list==='HydroFire' ||
+    isGeneratedMenReadingTask(task) ||
     calendarIdentity.includes('hydrofire') ||
     calendarIdentity.includes('engineering@hydrofire.co.za') ||
     isPastImportedCalendarTask(task);
@@ -809,6 +810,12 @@ function isPastImportedCalendarTask(task){
   }
   const due=String(task.dueDate||task.sourceStartDate||'');
   return Boolean(due && due < todayStr());
+}
+
+function isGeneratedMenReadingTask(task){
+  const id=String(task?.id||'');
+  const title=String(task?.title||'');
+  return id.startsWith('munya-men-reading-') || /^MEN - read at least 12 pages, sense-check and edit/i.test(title);
 }
 
 
@@ -833,6 +840,7 @@ function restoreBadStaleCleanupTasks(list){
   let changed=false;
   list.forEach(task=>{
     if(!task || !task.deletedAt || isImportedCalendarTask(task)) return;
+    if(isGeneratedMenReadingTask(task)) return;
     if(task.list==='HydroFire' || isRetiredHydrofireOrCalendarTask(task)) return;
     const deletedTime=Date.parse(task.deletedAt||'');
     if(Number.isNaN(deletedTime) || deletedTime < badCleanupStartedAt) return;
@@ -2407,5 +2415,6 @@ initGcal();
 
 </body>
 </html>
+
 
 
