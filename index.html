@@ -811,11 +811,18 @@ function isPastImportedCalendarTask(task){
   return Boolean(due && due < todayStr());
 }
 
+function isStaleOverdueAppTask(task){
+  if(!task || task.done || task.deletedAt || isImportedCalendarTask(task)) return false;
+  const due=String(task.dueDate||'');
+  return Boolean(due && due < addDays(-30));
+}
+
 function retireHydrofireAndCalendarTasks(list){
   const now=nowIso();
   let changed=false;
   list.forEach(task=>{
-    if(!task || !isRetiredHydrofireOrCalendarTask(task) || task.deletedAt) return;
+    if(!task || task.deletedAt) return;
+    if(!isRetiredHydrofireOrCalendarTask(task) && !isStaleOverdueAppTask(task)) return;
     task.deletedAt=now;
     task.updatedAt=now;
     task.done=false;
@@ -888,6 +895,7 @@ function normalizeTaskSet(list){
 }
 
 function addMenReadingPlan(){
+  return;
   const createdAt='2026-06-08T06:00:00.000Z';
   const dates=[
     '2026-06-08','2026-06-09','2026-06-10','2026-06-11',
@@ -1725,7 +1733,7 @@ function attemptSilentGoogleAuth(){
 
 async function signInGcal(){
   if(typeof google === 'undefined'){toast('Loading Google... try again in 2s');return false;}
-  const ok = await requestGoogleToken('');
+  const ok = await requestGoogleToken('consent');
   if(!ok) toast('Google reconnect failed. Try again once.');
   return ok;
 }
@@ -2386,3 +2394,4 @@ initGcal();
 
 </body>
 </html>
+
