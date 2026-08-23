@@ -811,22 +811,33 @@ function isPastImportedCalendarTask(task){
   return Boolean(due && due < todayStr());
 }
 
-function isStaleOverdueAppTask(task){
-  if(!task || task.done || task.deletedAt || isImportedCalendarTask(task)) return false;
-  const due=String(task.dueDate||'');
-  return Boolean(due && due < addDays(-30));
-}
 
 function retireHydrofireAndCalendarTasks(list){
   const now=nowIso();
   let changed=false;
   list.forEach(task=>{
     if(!task || task.deletedAt) return;
-    if(!isRetiredHydrofireOrCalendarTask(task) && !isStaleOverdueAppTask(task)) return;
+    if(!isRetiredHydrofireOrCalendarTask(task)) return;
     task.deletedAt=now;
     task.updatedAt=now;
     task.done=false;
     delete task.doneAt;
+    changed=true;
+  });
+  return changed;
+}
+
+function restoreBadStaleCleanupTasks(list){
+  const badCleanupStartedAt=Date.parse('2026-08-23T19:45:00.000Z');
+  const now=nowIso();
+  let changed=false;
+  list.forEach(task=>{
+    if(!task || !task.deletedAt || isImportedCalendarTask(task)) return;
+    if(task.list==='HydroFire' || isRetiredHydrofireOrCalendarTask(task)) return;
+    const deletedTime=Date.parse(task.deletedAt||'');
+    if(Number.isNaN(deletedTime) || deletedTime < badCleanupStartedAt) return;
+    delete task.deletedAt;
+    task.updatedAt=now;
     changed=true;
   });
   return changed;
@@ -890,6 +901,7 @@ function normalizeTask(task){
 
 function normalizeTaskSet(list){
   const normalized=Array.isArray(list) ? list.map(normalizeTask).filter(Boolean) : [];
+  restoreBadStaleCleanupTasks(normalized);
   retireHydrofireAndCalendarTasks(normalized);
   return normalized;
 }
@@ -2372,10 +2384,11 @@ async function manualSync(){
 
 // ── Init ─────────────────────────────────────────────────
 const _startupKalmChanged = assignKalmTasks(tasks);
+const _startupRestoredChanged = restoreBadStaleCleanupTasks(tasks);
 const _startupRetiredChanged = retireHydrofireAndCalendarTasks(tasks);
-if(_startupKalmChanged || _startupRetiredChanged){
+if(_startupKalmChanged || _startupRestoredChanged || _startupRetiredChanged){
   localStorage.setItem('munyaapp',JSON.stringify(tasks));
-  if(_startupRetiredChanged) markLocalTasksDirty();
+  if(_startupRestoredChanged || _startupRetiredChanged) markLocalTasksDirty();
 }
 addMenReadingPlan();
 initDragDrop();
@@ -2394,4 +2407,5 @@ initGcal();
 
 </body>
 </html>
+
 
