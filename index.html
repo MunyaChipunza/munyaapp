@@ -1725,7 +1725,7 @@ function attemptSilentGoogleAuth(){
 
 async function signInGcal(){
   if(typeof google === 'undefined'){toast('Loading Google... try again in 2s');return false;}
-  const ok = await requestGoogleToken('');
+  const ok = await requestGoogleToken('consent');
   if(!ok) toast('Google reconnect failed. Try again once.');
   return ok;
 }
